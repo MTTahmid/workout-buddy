@@ -4,6 +4,10 @@ import BuddyWorkout from '../models/BuddyWorkout.js';
 import Challenge from '../models/Challenge.js';
 import BuddyChallenge from '../models/BuddyChallenge.js';
 import CalorieTracker from '../models/CalorieTracker.js';
+import Workout from '../models/Workout.js';
+import WorkoutModel from '../models/WorkoutModel.js';
+import ActiveWorkoutModelSession from '../models/ActiveWorkoutModelSession.js';
+import WMCompletionHistory from '../models/WMCompletionHistory.js';
 import {
   deleteProofFromGridFS,
   getProofDownloadStream,
@@ -774,20 +778,24 @@ export async function getCurrentStakes(req, res) {
     return res.status(500).json({ message: 'Failed to fetch current stakes' });
   }
 }
-export async function CalorieLogger(req, res) {
+export async function CalorieLogger(req, res)
+{
   try {
     const { id } = req.params;
     const { weight, goal, date, workout, duration } = req.body;
 
-    if (!mongoose.isValidObjectId(id)) {
+    if (!mongoose.isValidObjectId(id))
+    {
       return res.status(400).json({ message: 'Invalid user id' });
     }
 
-    if (!weight || weight < 10) {
+    if (!weight || weight < 10)
+    {
       return res.status(400).json({ message: 'invalid weight' });
     }
 
-    if (!goal || goal < 1) {
+    if (!goal || goal < 1)
+    {
       return res.status(400).json({ message: 'goal must be a positive number' });
     }
 
@@ -795,7 +803,8 @@ export async function CalorieLogger(req, res) {
       return res.status(400).json({ message: 'Workout must be a non-empty string' });
     }
 
-    if (!duration || duration<=0) {
+    if (!duration || duration<=0)
+    {
       return res.status(400).json({ message: 'duration must be a positive number' });
     }
     
@@ -803,7 +812,8 @@ export async function CalorieLogger(req, res) {
 
     const isAllowedWorkout = normalizedWorkout in ALLOWED_WORKOUTS;
 
-    if (!isAllowedWorkout) {
+    if (!isAllowedWorkout)
+    {
       return res.status(400).json({ message: 'workout not allowed' });
     }
   
@@ -823,7 +833,9 @@ export async function CalorieLogger(req, res) {
 
     return res.status(201).json(entry);
 
-  } catch (error) {
+  }
+  catch (error)
+  {
     console.error('logCalories error:', error);
     return res.status(500).json({ message: 'Failed to log calories' });
   }
@@ -839,17 +851,20 @@ export async function GetCalorieHistory(req, res)
   {
     const { id } = req.params;
 
-    if (!mongoose.isValidObjectId(id)) {
+    if (!mongoose.isValidObjectId(id))
+    {
       return res.status(400).json({ message: 'Invalid user id' });
     }
 
     const user = await Users.findById(id).select('_id');
 
-    if (!user) {
+    if (!user)
+    {
       return res.status(404).json({ message: 'User not found' });
     }
     const filter = { userId: id };
-    if (req.query.start || req.query.end) {
+    if (req.query.start || req.query.end)
+    {
       filter.date = {};
       if (req.query.start)
         {
@@ -874,5 +889,419 @@ export async function GetCalorieHistory(req, res)
   {
     console.error('CalorieTracker error:', error);
     return res.status(500).json({ message: 'Failed to fetch Calorie history' });
+  }
+}
+export async function WorkoutModelGetter(req, res)
+{
+ try
+ {
+  const { id } = req.params;
+  if (id)
+  {
+    if (!mongoose.isValidObjectId(id))
+    {
+      return res.status(400).json({ message: 'Invalid user id' });
+    }
+
+    const models = await WorkoutModel.find({ userId: id });
+
+    if (!models.length)
+    {
+      return res.status(404).json({ message: 'No workout models found for this user' });
+    }
+
+    return res.status(200).json(models);
+  }
+  else
+  {
+    const models = await WorkoutModel.find();
+    
+    if (!models.length)
+    {
+      return res.status(404).json({ message: 'No workout models found' });
+    }
+
+    return res.status(200).json(models);
+  }
+ }
+ catch (error)
+ {
+  console.error('WorkoutModelGetter error:', error);
+  return res.status(500).json({ message: 'Failed to retrieve Workout Model' });
+}
+}
+export async function WorkoutModelCreator(req, res)
+{
+  try
+  {
+    const { id } = req.params;
+    const { category, title, workouts} = req.body;
+
+    if (!mongoose.isValidObjectId(id))
+    {
+      return res.status(400).json({ message: 'Invalid user id' });
+    }
+
+    if (typeof category !== 'string' || !category.trim())
+    {
+      return res.status(400).json({ message: 'Category must be a non-empty string' });
+    }
+
+    if (typeof title !== 'string' || !title.trim())
+    {
+      return res.status(400).json({ message: 'Title must be a non-empty string' });
+    }
+
+    if (!Array.isArray(workouts) || workouts.length === 0)
+    {
+      return res.status(400).json({message: 'Workouts must be non-empty array'});
+    }
+
+    for (let i = 0; i < workouts.length; i++)
+    {
+      const entry = workouts[i];
+
+      if (typeof entry != 'object' || entry === null)
+      {
+        return res.status(400).json({message: 'Entry must be an object'});
+      }
+
+      if (!mongoose.isValidObjectId(entry.exercise))
+      {
+        return res.status(400).json({message: 'Exercise must be a valid object'});
+      }
+      
+      if (typeof entry.sets != 'number' || !Number.isInteger(entry.sets) || entry.sets < 1)
+      {
+        return res.status(400).json({message: 'Set must be a number >= 1'});
+      }
+      
+      if (typeof entry.reps != 'number' || !Number.isInteger(entry.reps) || entry.reps < 1)
+      {
+        return res.status(400).json({message: 'Reps must be a number >= 1'});
+      }
+      
+      if (typeof entry.rest != 'number' || !Number.isInteger(entry.rest) || entry.rest < 1)
+      {
+        return res.status(400).json({message: 'Rest must be a number >= 1'});
+      }
+    }
+    const entry = await WorkoutModel.create({
+      userId: id,
+      category,
+      title,
+      workouts,
+    });
+
+    if (!entry)
+    {
+      return res.status(404).json({ message: 'Workout model not created' });
+    }
+
+    return res.status(201).json(entry);
+
+  }
+  catch (error)
+  {
+    console.error('WorkoutModelCreator error:', error);
+    return res.status(500).json({ message: 'Failed to create Workout Model' });
+  }
+}
+export async function WorkoutModelDeleter(req, res)
+{
+  try
+  {
+    const { id } = req.params;
+    const { title } = req.body;
+
+    if (!mongoose.isValidObjectId(id))
+    {
+      return res.status(400).json({ message: 'Invalid user id' });
+    }
+
+    if (typeof title !== 'string' || !title.trim())
+    {
+      return res.status(400).json({ message: 'Title must be a non-empty string' });
+    }
+
+    const deleted = await WorkoutModel.findOneAndDelete({userId: id, title});
+
+    if (!deleted)
+    {
+      return res.status(404).json({ message: 'Workout model not found' });
+    }
+
+    return res.status(200).json({ message: 'Workout model deleted successfully' });
+  }
+  catch (error)
+  {
+    console.error('WorkoutModelDeleter error:', error);
+    return res.status(500).json({ message: 'Failed to delete workout model' });
+  }
+}
+export async function WorkoutModelEditor(req, res)
+{
+  try
+  {
+    const { id } = req.params;
+    const { category, title, workouts} = req.body;
+
+    if (!mongoose.isValidObjectId(id))
+    {
+      return res.status(400).json({ message: 'Invalid user id' });
+    }
+
+    if (typeof category !== 'string' || !category.trim())
+    {
+      return res.status(400).json({ message: 'Category must be a non-empty string' });
+    }
+
+    if (typeof title !== 'string' || !title.trim())
+    {
+      return res.status(400).json({ message: 'Title must be a non-empty string' });
+    }
+
+    if (!Array.isArray(workouts) || workouts.length === 0)
+    {
+      return res.status(400).json({message: 'Workouts must be non-empty array'});
+    }
+
+    for (let i = 0; i < workouts.length; i++)
+    {
+      const entry = workouts[i];
+
+      if (typeof entry != 'object' || entry === null)
+      {
+        return res.status(400).json({message: 'Entry must be an object'});
+      }
+
+      if (!mongoose.isValidObjectId(entry.exercise))
+      {
+        return res.status(400).json({message: 'Exercise must be a valid object'});
+      }
+      
+      if (typeof entry.sets != 'number' || !Number.isInteger(entry.sets) || entry.sets < 1)
+      {
+        return res.status(400).json({message: 'Set must be a number >= 1'});
+      }
+      
+      if (typeof entry.reps != 'number' || !Number.isInteger(entry.reps) || entry.reps < 1)
+      {
+        return res.status(400).json({message: 'Reps must be a number >= 1'});
+      }
+      
+      if (typeof entry.rest != 'number' || !Number.isInteger(entry.rest) || entry.rest < 1)
+      {
+        return res.status(400).json({message: 'Rest must be a number >= 1'});
+      }
+    }
+
+    const edited = await WorkoutModel.findOneAndReplace(
+      { userId: id, title },
+      {
+        userId: id,
+        category,
+        title,
+        workouts,
+      },
+      { new: true} 
+    );
+
+    if (!edited)
+    {
+      return res.status(404).json({ message: 'Workout model not found' });
+    }
+
+    return res.status(200).json({ message: 'Workout model updated successfully' });
+  }
+  catch (error)
+  {
+    console.error('WorkoutModelEditor error:', error);
+    return res.status(500).json({ message: 'Failed to edit workout model' });
+  }
+}
+export async function WorkoutModelSessionStarter(req, res)
+{
+  try
+  {
+    const { id } = req.params;
+    const { modelId } = req.body;
+
+    if (!mongoose.isValidObjectId(id))
+    {
+      return res.status(400).json({ message: 'Invalid user id' });
+    }
+
+    if (!mongoose.isValidObjectId(modelId))
+    {
+      return res.status(400).json({ message: 'Invalid model id' });
+    }
+
+    const existing = await ActiveWorkoutModelSession.findOne({ userId: id})
+    if (existing)
+    {
+      return res.status(400).json({ message: 'User already has an active session' });
+    }
+
+    const model = await WorkoutModel.findOne({_id: modelId});
+    if (!model)
+    {
+      return res.status(400).json({ message: 'Workout model not found' });
+    }
+
+    const session = await ActiveWorkoutModelSession.create(
+      {
+        userId: id,
+        modelId,
+        startTime: new Date(),
+        progress: model.workouts.map(w => ({
+        exercise: w.exercise,
+        sets: w.sets,
+        reps: w.reps,
+        rest: w.rest,
+        completed: false,
+        timeTaken: null,
+      }))
+      }
+    )
+    return res.status(201).json(session);
+  }
+  catch (error)
+  {
+    console.error('WorkoutModelSessionStarter error:', error);
+    return res.status(500).json({ message: 'Failed to start workout model session' });
+  }
+}
+export async function WorkoutModelSessionTracker(req, res)
+{
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.isValidObjectId(id))
+    {
+      return res.status(400).json({ message: 'Invalid user id' });
+    }
+
+    const session = await ActiveWorkoutModelSession.findOne({ userId: id }).populate('modelId').populate('progress.exercise');
+
+    if (!session)
+    {
+      return res.status(404).json({message: 'Session not found'});
+    }
+
+    const total = session.progress.length;
+    const completed = session.progress.filter(p => p.completed).length;
+
+    return res.status(200).json({session, summary: {completed, total, remaining: total-completed, percentageCompleted: Math.round((completed/total)*100)}});
+  }
+  catch (error)
+  {
+    console.error('WorkoutModelSessionTracker error:', error);
+    return res.status(500).json({ message: 'Failed to get workout model session' });
+  }
+}
+export async function WorkoutModelSessionUpdater(req, res)
+{
+  try
+  {
+    const { id } = req.params;
+    const { exerciseId, timeTaken } = req.body;
+
+    if (!mongoose.isValidObjectId(id))
+    {
+      return res.status(400).json({ message: 'Invalid user id' });
+    }
+
+    if (!mongoose.isValidObjectId(exerciseId))
+    {
+      return res.status(400).json({ message: 'Invalid exercise id' });
+    }
+
+    if (typeof timeTaken !== 'number' || !Number.isInteger(timeTaken) || timeTaken < 1) {
+      return res.status(400).json({ message: 'timeTaken must be an integer >= 1' });
+    }
+
+    const session = await ActiveWorkoutModelSession.findOne({ userId: id });
+    if (!session)
+    {
+      return res.status(404).json({message: 'Session not found'});
+    }
+
+    const update = session.progress.find(p => p.exercise.toString() === exerciseId);
+
+    if (!update)
+    {
+      return res.status(404).json({message: 'exercise not found'});
+    }
+
+    if (update.completed)
+    {
+      return res.status(400).json({message: 'exercise already completed'});
+    }
+
+    update.completed = true;
+    update.timeTaken = timeTaken;
+    await session.save();
+
+    return res.status(200).json({message: 'Exercise successfully completed'})
+  }
+  catch(error)
+  {
+    console.error('WorkoutModelSessionUpdater error', error);
+    return res.status(500).json({ message: 'Failed to update workout model session' });
+  }
+}
+export async function WorkoutModelSessionEnder(req, res)
+{
+  try
+  {
+    const { id } = req.params;
+
+    if (!mongoose.isValidObjectId(id))
+    {
+      return res.status(400).json({ message: 'Invalid user id' });
+    }
+
+    const session = await ActiveWorkoutModelSession.findOne({ userId: id });
+    if (!session)
+    {
+      return res.status(404).json({message: 'Session not found'});
+    }
+
+    const allDone = session.progress.every(p => p.completed);
+    if (!allDone)
+    {
+      return res.status(400).json({message: 'Session not completed yet'});
+    }
+
+    const endTime = new Date();
+    const totalTime = Math.round((endTime - session.startTime) / 1000);
+
+    const record = await WMCompletionHistory.create(
+      {
+        userId: id,
+        modelId: session.modelId,
+        startTime: session.startTime,
+        endTime,
+        totalTime,
+        workouts: session.progress.map(p => 
+        ({
+          exercise: p.exercise,
+          sets: p.sets,
+          reps: p.reps,
+          rest: p.rest,
+          timeTaken: p.timeTaken,
+        }))
+      }
+    )
+    
+    await ActiveWorkoutModelSession.findByIdAndDelete(session._id);
+
+    return res.status(200).json({message: 'Workout Model completed and saved to history'});
+  }
+  catch (error)
+  {
+    console.error('WorkoutModelSessionEnder error', error);
+    return res.status(500).json({ message: 'Failed to end workout model session' });
   }
 }
