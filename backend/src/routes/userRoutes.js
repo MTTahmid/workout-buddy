@@ -52,7 +52,7 @@ router.get('/workout-models/get', WorkoutModelGetter);
 router.get('/:id/workout-models/get', WorkoutModelGetter);
 router.post('/:id/workout-models/create', WorkoutModelCreator);
 router.post('/:id/workout-models/delete', WorkoutModelDeleter);
-router.post('/:id/active-workout-model/edit', WorkoutModelEditor);
+router.post('/:id/workout-models/edit', WorkoutModelEditor);
 router.post('/:id/active-workout-model-session/start', WorkoutModelSessionStarter);
 router.get('/:id/active-workout-model-session/tracker', WorkoutModelSessionTracker);
 router.post('/:id/active-workout-model-session/update', WorkoutModelSessionUpdater);

@@ -4,7 +4,10 @@ import BuddyWorkout from '../models/BuddyWorkout.js';
 import Challenge from '../models/Challenge.js';
 import BuddyChallenge from '../models/BuddyChallenge.js';
 import CalorieTracker from '../models/CalorieTracker.js';
+import Workout from '../models/Workout.js';
 import WorkoutModel from '../models/WorkoutModel.js';
+import ActiveWorkoutModelSession from '../models/ActiveWorkoutModelSession.js';
+import WMCompletionHistory from '../models/WMCompletionHistory.js';
 import {
   deleteProofFromGridFS,
   getProofDownloadStream,
@@ -1237,7 +1240,7 @@ export async function WorkoutModelSessionUpdater(req, res)
     }
 
     update.completed = true;
-    update.timetTaken = timeTaken;
+    update.timeTaken = timeTaken;
     await session.save();
 
     return res.status(200).json({message: 'Exercise successfully completed'})
@@ -1274,7 +1277,7 @@ export async function WorkoutModelSessionEnder(req, res)
     const endTime = new Date();
     const totalTime = Math.round((endTime - session.startTime) / 1000);
 
-    const record = await WorkoutModelCompletionHistory.create(
+    const record = await WMCompletionHistory.create(
       {
         userId: id,
         modelId: session.modelId,
