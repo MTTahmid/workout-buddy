@@ -1,7 +1,7 @@
 import Users from '../models/Users.js';
 import BuddyPair from '../models/BuddyPair.js';
 import BuddyWorkout from '../models/BuddyWorkout.js';
-import Challenge from '../models/Challenge.js';
+import WeeklyGoal from '../models/WeeklyGoal.js';
 import BuddyChallenge from '../models/BuddyChallenge.js';
 import CalorieTracker from '../models/CalorieTracker.js';
 import Workout from '../models/Workout.js';
@@ -98,39 +98,39 @@ function buildEmptyStreakStatus(participants) {
 }
 
 async function ensureWeeklyGoalForPair(buddyPair) {
-  let challenge = await Challenge.findOne({ buddyPairId: buddyPair._id });
+  let weeklyGoal = await WeeklyGoal.findOne({ buddyPairId: buddyPair._id });
 
-  if (!challenge) {
-    challenge = await Challenge.findOne({
+  if (!weeklyGoal) {
+    weeklyGoal = await WeeklyGoal.findOne({
       participants: { $all: buddyPair.members, $size: 2 },
     }).sort({ startDate: -1 });
 
-    if (challenge) {
-      challenge.buddyPairId = buddyPair._id;
-      if (!Number.isInteger(challenge.weeklyWorkoutGoal) || challenge.weeklyWorkoutGoal < 1) {
-        challenge.weeklyWorkoutGoal = DEFAULT_WEEKLY_GOAL;
+    if (weeklyGoal) {
+      weeklyGoal.buddyPairId = buddyPair._id;
+      if (!Number.isInteger(weeklyGoal.weeklyWorkoutGoal) || weeklyGoal.weeklyWorkoutGoal < 1) {
+        weeklyGoal.weeklyWorkoutGoal = DEFAULT_WEEKLY_GOAL;
       }
-      if (!challenge.stake) {
-        challenge.stake = DEFAULT_WEEKLY_STAKE;
+      if (!weeklyGoal.stake) {
+        weeklyGoal.stake = DEFAULT_WEEKLY_STAKE;
       }
-      if (!Array.isArray(challenge.dailyStreaks) || challenge.dailyStreaks.length === 0) {
-        challenge.dailyStreaks = buildEmptyDailyStreaks(buddyPair.members);
+      if (!Array.isArray(weeklyGoal.dailyStreaks) || weeklyGoal.dailyStreaks.length === 0) {
+        weeklyGoal.dailyStreaks = buildEmptyDailyStreaks(buddyPair.members);
       }
-      if (!Array.isArray(challenge.streakStatus) || challenge.streakStatus.length === 0) {
-        challenge.streakStatus = buildEmptyStreakStatus(buddyPair.members);
+      if (!Array.isArray(weeklyGoal.streakStatus) || weeklyGoal.streakStatus.length === 0) {
+        weeklyGoal.streakStatus = buildEmptyStreakStatus(buddyPair.members);
       }
-      if (!Array.isArray(challenge.proofs)) {
-        challenge.proofs = [];
+      if (!Array.isArray(weeklyGoal.proofs)) {
+        weeklyGoal.proofs = [];
       }
-      await challenge.save();
+      await weeklyGoal.save();
     }
   }
 
-  if (!challenge) {
+  if (!weeklyGoal) {
     const startDate = buildWeeklyWindowStart();
     const endDate = buildWeeklyWindowEnd(startDate);
 
-    challenge = await Challenge.create({
+    weeklyGoal = await WeeklyGoal.create({
       buddyPairId: buddyPair._id,
       participants: buddyPair.members,
       weeklyWorkoutGoal: DEFAULT_WEEKLY_GOAL,
@@ -145,50 +145,50 @@ async function ensureWeeklyGoalForPair(buddyPair) {
     });
   }
 
-  return challenge;
+  return weeklyGoal;
 }
 
-async function resetWeeklyGoalIfExpired(challenge, now = new Date()) {
+async function resetWeeklyGoalIfExpired(weeklyGoal, now = new Date()) {
   let updated = false;
 
-  if (!(challenge.endDate instanceof Date) || Number.isNaN(challenge.endDate.getTime())) {
+  if (!(weeklyGoal.endDate instanceof Date) || Number.isNaN(weeklyGoal.endDate.getTime())) {
     const startDate = buildWeeklyWindowStart(now);
-    challenge.startDate = startDate;
-    challenge.endDate = buildWeeklyWindowEnd(startDate);
-    challenge.dailyStreaks = buildEmptyDailyStreaks(challenge.participants);
-    challenge.streakStatus = buildEmptyStreakStatus(challenge.participants);
-    challenge.proofs = [];
-    challenge.status = 'active';
-    challenge.combined_streak = false;
-    await challenge.save();
-    return challenge;
+    weeklyGoal.startDate = startDate;
+    weeklyGoal.endDate = buildWeeklyWindowEnd(startDate);
+    weeklyGoal.dailyStreaks = buildEmptyDailyStreaks(weeklyGoal.participants);
+    weeklyGoal.streakStatus = buildEmptyStreakStatus(weeklyGoal.participants);
+    weeklyGoal.proofs = [];
+    weeklyGoal.status = 'active';
+    weeklyGoal.combined_streak = false;
+    await weeklyGoal.save();
+    return weeklyGoal;
   }
 
-  while (now > challenge.endDate) {
+  while (now > weeklyGoal.endDate) {
     const bothCompletedPreviousWeek =
-      Array.isArray(challenge.streakStatus)
-      && challenge.streakStatus.length === challenge.participants.length
-      && challenge.streakStatus.every((entry) => entry.streak === true);
+      Array.isArray(weeklyGoal.streakStatus)
+      && weeklyGoal.streakStatus.length === weeklyGoal.participants.length
+      && weeklyGoal.streakStatus.every((entry) => entry.streak === true);
 
     // Keep combined streak true only if each completed the previous week.
-    challenge.combined_streak = bothCompletedPreviousWeek;
+    weeklyGoal.combined_streak = bothCompletedPreviousWeek;
 
-    const nextStartDate = buildWeeklyWindowStart(challenge.endDate);
-    challenge.startDate = nextStartDate;
-    challenge.endDate = buildWeeklyWindowEnd(nextStartDate);
-    challenge.dailyStreaks = buildEmptyDailyStreaks(challenge.participants);
-    challenge.streakStatus = buildEmptyStreakStatus(challenge.participants);
-    challenge.proofs = [];
-    challenge.status = 'active';
+    const nextStartDate = buildWeeklyWindowStart(weeklyGoal.endDate);
+    weeklyGoal.startDate = nextStartDate;
+    weeklyGoal.endDate = buildWeeklyWindowEnd(nextStartDate);
+    weeklyGoal.dailyStreaks = buildEmptyDailyStreaks(weeklyGoal.participants);
+    weeklyGoal.streakStatus = buildEmptyStreakStatus(weeklyGoal.participants);
+    weeklyGoal.proofs = [];
+    weeklyGoal.status = 'active';
 
     updated = true;
   }
 
   if (updated) {
-    await challenge.save();
+    await weeklyGoal.save();
   }
 
-  return challenge;
+  return weeklyGoal;
 }
 
 export async function getUsers(req, res) {
@@ -432,7 +432,7 @@ export async function getAllowedStakes(req, res) {
   return res.status(200).json({ allowedStakes: ALLOWED_STAKES });
 }
 
-export async function createWeeklyBet(req, res) {
+export async function updateWeeklyGoal(req, res) {
   try {
     const { id } = req.params;
     const { buddyId, weeklyWorkoutGoal, stake, startDate, status } = req.body;
@@ -479,15 +479,15 @@ export async function createWeeklyBet(req, res) {
       }
     }
 
-    let challenge = await ensureWeeklyGoalForPair(buddyPair);
-    challenge = await resetWeeklyGoalIfExpired(challenge);
+    let weeklyGoal = await ensureWeeklyGoalForPair(buddyPair);
+    weeklyGoal = await resetWeeklyGoalIfExpired(weeklyGoal);
 
     if (parsedGoal !== null) {
-      challenge.weeklyWorkoutGoal = parsedGoal;
+      weeklyGoal.weeklyWorkoutGoal = parsedGoal;
     }
 
     if (normalizedStake !== null) {
-      challenge.stake = normalizedStake;
+      weeklyGoal.stake = normalizedStake;
     }
 
     if (startDate) {
@@ -497,20 +497,20 @@ export async function createWeeklyBet(req, res) {
       }
 
       const start = buildWeeklyWindowStart(normalizedStartDate);
-      challenge.startDate = start;
-      challenge.endDate = buildWeeklyWindowEnd(start);
+      weeklyGoal.startDate = start;
+      weeklyGoal.endDate = buildWeeklyWindowEnd(start);
     }
 
     if (status) {
-      challenge.status = status;
+      weeklyGoal.status = status;
     }
 
-    await challenge.save();
+    await weeklyGoal.save();
 
-    const isAllowedStake = ALLOWED_STAKES.includes(challenge.stake);
+    const isAllowedStake = ALLOWED_STAKES.includes(weeklyGoal.stake);
 
     return res.status(200).json({
-      challenge,
+      weeklyGoal,
       allowedStake: isAllowedStake,
       message: isAllowedStake
         ? 'Weekly goal updated'
@@ -756,7 +756,7 @@ export async function getCurrentStakes(req, res) {
       userId: id,
       hasCurrentStake: true,
       stake: {
-        challengeId: challenge._id,
+        weeklyGoalId: challenge._id,
         weeklyWorkoutGoal: challenge.weeklyWorkoutGoal,
         stake: challenge.stake,
         status: challenge.status,
@@ -775,20 +775,20 @@ export async function getCurrentStakes(req, res) {
 }
 
 // Helper function to calculate streak completion
-async function updateChallengeStreaks(challenge) {
+async function updateWeeklyGoalStreaks(weeklyGoal) {
   try {
-    const targetDays = Math.max(1, Number(challenge.weeklyWorkoutGoal) || 1);
+    const targetDays = Math.max(1, Number(weeklyGoal.weeklyWorkoutGoal) || 1);
 
     // Check each participant's streak
-    for (const participant of challenge.participants) {
-      const dailyStreak = challenge.dailyStreaks.find(
+    for (const participant of weeklyGoal.participants) {
+      const dailyStreak = weeklyGoal.dailyStreaks.find(
         (ds) => String(ds.userId) === String(participant)
       );
 
       if (dailyStreak) {
         // If weekly target days are met, mark streak as true
         const uniqueDays = new Set(dailyStreak.uploadedDays);
-        const streakStatus = challenge.streakStatus.find(
+        const streakStatus = weeklyGoal.streakStatus.find(
           (ss) => String(ss.userId) === String(participant)
         );
 
@@ -799,26 +799,26 @@ async function updateChallengeStreaks(challenge) {
     }
 
     // Keep combined streak running during the week; flip true once both hit goal.
-    const allStreaksTrue = challenge.streakStatus.every((ss) => ss.streak === true);
-    if (allStreaksTrue && challenge.streakStatus.length === 2) {
-      challenge.combined_streak = true;
+    const allStreaksTrue = weeklyGoal.streakStatus.every((ss) => ss.streak === true);
+    if (allStreaksTrue && weeklyGoal.streakStatus.length === 2) {
+      weeklyGoal.combined_streak = true;
     }
 
-    await challenge.save();
-    return challenge;
+    await weeklyGoal.save();
+    return weeklyGoal;
   } catch (error) {
-    console.error('updateChallengeStreaks error:', error);
+    console.error('updateWeeklyGoalStreaks error:', error);
     throw error;
   }
 }
 
 // Submit weekly goal proof (image upload)
-export async function submitWeeklyBetProof(req, res) {
+export async function submitWeeklyGoalProof(req, res) {
   try {
-    const { id, challengeId } = req.params;
+    const { id, weeklyGoalId } = req.params;
 
-    if (!mongoose.isValidObjectId(id) || !mongoose.isValidObjectId(challengeId)) {
-      return res.status(400).json({ message: 'Invalid user id or challenge id' });
+    if (!mongoose.isValidObjectId(id) || !mongoose.isValidObjectId(weeklyGoalId)) {
+      return res.status(400).json({ message: 'Invalid user id or weekly goal id' });
     }
 
     if (!req.file) {
@@ -830,23 +830,23 @@ export async function submitWeeklyBetProof(req, res) {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    let challenge = await Challenge.findById(challengeId);
-    if (!challenge) {
+    let weeklyGoal = await WeeklyGoal.findById(weeklyGoalId);
+    if (!weeklyGoal) {
       return res.status(404).json({ message: 'Weekly goal not found' });
     }
 
-    challenge = await resetWeeklyGoalIfExpired(challenge);
+    weeklyGoal = await resetWeeklyGoalIfExpired(weeklyGoal);
 
     // Check if user is a participant
-    const isParticipant = challenge.participants.some((p) => String(p) === String(id));
+    const isParticipant = weeklyGoal.participants.some((p) => String(p) === String(id));
     if (!isParticipant) {
-      return res.status(403).json({ message: 'User is not a participant in this challenge' });
+      return res.status(403).json({ message: 'User is not a participant in this weekly goal' });
     }
 
     // Check if challenge is still active
     const now = new Date();
-    if (now > challenge.endDate) {
-      return res.status(400).json({ message: 'Challenge deadline has passed' });
+    if (now > weeklyGoal.endDate) {
+      return res.status(400).json({ message: 'Weekly goal deadline has passed' });
     }
 
     // Get today's date in YYYY-MM-DD format
@@ -860,14 +860,14 @@ export async function submitWeeklyBetProof(req, res) {
       filename: req.file.originalname,
       contentType: req.file.mimetype,
       metadata: {
-        challengeId,
+        weeklyGoalId,
         userId: id,
         uploadedDate: now,
       },
     });
 
-    // Add proof to challenge
-    challenge.proofs.push({
+    // Add proof to weekly goal
+    weeklyGoal.proofs.push({
       userId: id,
       uploadedDate: now,
       uploadedDay: todayString,
@@ -879,7 +879,7 @@ export async function submitWeeklyBetProof(req, res) {
     });
 
     // Update daily streak for user
-    const dailyStreak = challenge.dailyStreaks.find((ds) => String(ds.userId) === String(id));
+    const dailyStreak = weeklyGoal.dailyStreaks.find((ds) => String(ds.userId) === String(id));
     if (dailyStreak) {
       // Check if today's date is already in the list
       if (!dailyStreak.uploadedDays.includes(todayString)) {
@@ -888,43 +888,43 @@ export async function submitWeeklyBetProof(req, res) {
     }
 
     // Update streak status
-    await updateChallengeStreaks(challenge);
+    await updateWeeklyGoalStreaks(weeklyGoal);
 
-    const weeklyGoal = Math.max(1, Number(challenge.weeklyWorkoutGoal) || 1);
-    const cappedDailyStreaks = challenge.dailyStreaks.map((entry) => {
+    const weeklyGoalTarget = Math.max(1, Number(weeklyGoal.weeklyWorkoutGoal) || 1);
+    const cappedDailyStreaks = weeklyGoal.dailyStreaks.map((entry) => {
       const uniqueDays = [...new Set(entry.uploadedDays || [])];
-      const cappedCount = Math.min(uniqueDays.length, weeklyGoal);
+      const cappedCount = Math.min(uniqueDays.length, weeklyGoalTarget);
 
       return {
         userId: entry.userId,
-        uploadedDays: uniqueDays.slice(0, weeklyGoal),
+        uploadedDays: uniqueDays.slice(0, weeklyGoalTarget),
         daysCompleted: cappedCount,
-        goalDays: weeklyGoal,
+        goalDays: weeklyGoalTarget,
       };
     });
 
     return res.status(200).json({
       message: 'Weekly goal proof uploaded successfully',
-      challenge: {
-        _id: challenge._id,
+      weeklyGoal: {
+        _id: weeklyGoal._id,
         dailyStreaks: cappedDailyStreaks,
-        streakStatus: challenge.streakStatus,
-        combined_streak: challenge.combined_streak,
-        proofCount: challenge.proofs.length,
+        streakStatus: weeklyGoal.streakStatus,
+        combined_streak: weeklyGoal.combined_streak,
+        proofCount: weeklyGoal.proofs.length,
       },
     });
   } catch (error) {
-    console.error('submitWeeklyBetProof error:', error);
+    console.error('submitWeeklyGoalProof error:', error);
     return res.status(500).json({ message: 'Failed to submit weekly goal proof' });
   }
 }
 
-export async function getWeeklyBetProof(req, res) {
+export async function getWeeklyGoalProof(req, res) {
   try {
-    const { id, challengeId, proofId } = req.params;
+    const { id, weeklyGoalId, proofId } = req.params;
 
-    if (!mongoose.isValidObjectId(id) || !mongoose.isValidObjectId(challengeId)) {
-      return res.status(400).json({ message: 'Invalid user id or challenge id' });
+    if (!mongoose.isValidObjectId(id) || !mongoose.isValidObjectId(weeklyGoalId)) {
+      return res.status(400).json({ message: 'Invalid user id or weekly goal id' });
     }
 
     if (!mongoose.isValidObjectId(proofId)) {
@@ -936,19 +936,19 @@ export async function getWeeklyBetProof(req, res) {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    let challenge = await Challenge.findById(challengeId);
-    if (!challenge) {
+    let weeklyGoal = await WeeklyGoal.findById(weeklyGoalId);
+    if (!weeklyGoal) {
       return res.status(404).json({ message: 'Weekly goal not found' });
     }
 
-    challenge = await resetWeeklyGoalIfExpired(challenge);
+    weeklyGoal = await resetWeeklyGoalIfExpired(weeklyGoal);
 
-    const isParticipant = challenge.participants.some((participantId) => String(participantId) === String(id));
+    const isParticipant = weeklyGoal.participants.some((participantId) => String(participantId) === String(id));
     if (!isParticipant) {
-      return res.status(403).json({ message: 'User is not a participant in this challenge' });
+      return res.status(403).json({ message: 'User is not a participant in this weekly goal' });
     }
 
-    const proof = challenge.proofs.find((entry) => String(entry._id) === String(proofId));
+    const proof = weeklyGoal.proofs.find((entry) => String(entry._id) === String(proofId));
     if (!proof || !proof.fileId) {
       return res.status(404).json({ message: 'Proof not found' });
     }
@@ -970,18 +970,18 @@ export async function getWeeklyBetProof(req, res) {
 
     return downloadStream.pipe(res);
   } catch (error) {
-    console.error('getWeeklyBetProof error:', error);
+    console.error('getWeeklyGoalProof error:', error);
     return res.status(500).json({ message: 'Failed to fetch weekly goal proof' });
   }
 }
 
-// Get weekly challenge details with streak info
-export async function getWeeklyChallengeDetails(req, res) {
+// Get weekly goal details with streak info
+export async function getWeeklyGoalDetails(req, res) {
   try {
-    const { id, challengeId } = req.params;
+    const { id, weeklyGoalId } = req.params;
 
-    if (!mongoose.isValidObjectId(id) || !mongoose.isValidObjectId(challengeId)) {
-      return res.status(400).json({ message: 'Invalid user id or challenge id' });
+    if (!mongoose.isValidObjectId(id) || !mongoose.isValidObjectId(weeklyGoalId)) {
+      return res.status(400).json({ message: 'Invalid user id or weekly goal id' });
     }
 
     const user = await Users.findById(id).select('_id');
@@ -989,59 +989,59 @@ export async function getWeeklyChallengeDetails(req, res) {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    let challenge = await Challenge.findById(challengeId).populate('participants', '_id');
-    if (!challenge) {
+    let weeklyGoal = await WeeklyGoal.findById(weeklyGoalId).populate('participants', '_id');
+    if (!weeklyGoal) {
       return res.status(404).json({ message: 'Weekly goal not found' });
     }
 
-    challenge = await resetWeeklyGoalIfExpired(challenge);
+    weeklyGoal = await resetWeeklyGoalIfExpired(weeklyGoal);
 
-    const isParticipant = challenge.participants.some((p) => String(p?._id || p) === String(id));
+    const isParticipant = weeklyGoal.participants.some((p) => String(p?._id || p) === String(id));
     if (!isParticipant) {
-      return res.status(403).json({ message: 'User is not a participant in this challenge' });
+      return res.status(403).json({ message: 'User is not a participant in this weekly goal' });
     }
 
     // Get current user's streak info
-    const userDailyStreak = challenge.dailyStreaks.find((ds) => String(ds.userId) === String(id));
-    const userStreakStatus = challenge.streakStatus.find((ss) => String(ss.userId) === String(id));
-    const userProofs = challenge.proofs.filter((p) => String(p.userId) === String(id));
-    const weeklyGoal = Math.max(1, Number(challenge.weeklyWorkoutGoal) || 1);
+    const userDailyStreak = weeklyGoal.dailyStreaks.find((ds) => String(ds.userId) === String(id));
+    const userStreakStatus = weeklyGoal.streakStatus.find((ss) => String(ss.userId) === String(id));
+    const userProofs = weeklyGoal.proofs.filter((p) => String(p.userId) === String(id));
+    const weeklyGoalTarget = Math.max(1, Number(weeklyGoal.weeklyWorkoutGoal) || 1);
     const userUniqueDays = [...new Set(userDailyStreak?.uploadedDays || [])];
-    const cappedUserDays = userUniqueDays.slice(0, weeklyGoal);
-    const participantProgress = challenge.dailyStreaks.map((entry) => {
+    const cappedUserDays = userUniqueDays.slice(0, weeklyGoalTarget);
+    const participantProgress = weeklyGoal.dailyStreaks.map((entry) => {
       const uniqueDays = [...new Set(entry.uploadedDays || [])];
-      const daysCompleted = Math.min(uniqueDays.length, weeklyGoal);
+      const daysCompleted = Math.min(uniqueDays.length, weeklyGoalTarget);
 
       return {
         userId: entry.userId,
         daysCompleted,
-        goalDays: weeklyGoal,
+        goalDays: weeklyGoalTarget,
       };
     });
 
     return res.status(200).json({
-      challenge: {
-        _id: challenge._id,
-        weeklyWorkoutGoal: challenge.weeklyWorkoutGoal,
-        stake: challenge.stake,
-        status: challenge.status,
-        startDate: challenge.startDate,
-        endDate: challenge.endDate,
-        combined_streak: challenge.combined_streak,
+      weeklyGoal: {
+        _id: weeklyGoal._id,
+        weeklyWorkoutGoal: weeklyGoal.weeklyWorkoutGoal,
+        stake: weeklyGoal.stake,
+        status: weeklyGoal.status,
+        startDate: weeklyGoal.startDate,
+        endDate: weeklyGoal.endDate,
+        combined_streak: weeklyGoal.combined_streak,
       },
       userStreak: {
         uploadedDays: cappedUserDays,
         streak: userStreakStatus?.streak || false,
         uploadCount: userProofs.length,
-        daysCompleted: Math.min(userUniqueDays.length, weeklyGoal),
-        goalDays: weeklyGoal,
+        daysCompleted: Math.min(userUniqueDays.length, weeklyGoalTarget),
+        goalDays: weeklyGoalTarget,
       },
-      allStreakStatus: challenge.streakStatus,
+      allStreakStatus: weeklyGoal.streakStatus,
       participantProgress,
     });
   } catch (error) {
-    console.error('getWeeklyChallengeDetails error:', error);
-    return res.status(500).json({ message: 'Failed to fetch weekly challenge details' });
+    console.error('getWeeklyGoalDetails error:', error);
+    return res.status(500).json({ message: 'Failed to fetch weekly goal details' });
   }
 }
 

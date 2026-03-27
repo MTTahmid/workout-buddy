@@ -7,7 +7,7 @@ const proofUpload = multer({
   },
   fileFilter: (_req, file, callback) => {
     if (!file.mimetype.startsWith('image/')) {
-      callback(new Error('Only image uploads are allowed for challenge proof'));
+      callback(new Error('Only image uploads are allowed for weekly goal proof'));
       return;
     }
 

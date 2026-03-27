@@ -9,11 +9,11 @@ import {
   getChallengePhotos,
   getCurrentStakes,
   getAllowedStakes,
-  createWeeklyBet,
+  updateWeeklyGoal,
   createBuddyChallenge,
-  submitWeeklyBetProof,
-  getWeeklyBetProof,
-  getWeeklyChallengeDetails,
+  submitWeeklyGoalProof,
+  getWeeklyGoalProof,
+  getWeeklyGoalDetails,
   CalorieLogger,
   GetCalorieHistory,
   WorkoutModelGetter,
@@ -38,7 +38,7 @@ const router = express.Router();
  * router.put('/evidence)
  */
 router.get('/users', getUsers);
-router.get('/weekly-bets/allowed-stakes', getAllowedStakes);
+router.get('/weekly-goals/allowed-stakes', getAllowedStakes);
 router.get('/:id/pairing-code', fetchPairingCode);
 router.put('/:id/buddy/:pairingCode', buddyUp);
 router.get('/:id/buddy', getBuddyInfo);
@@ -46,11 +46,11 @@ router.get('/:id/weekly-workout-routine', getWeeklyWorkoutRoutine);
 router.get('/:id/history', getUserHistory);
 router.get('/:id/challenge-photos', getChallengePhotos);
 router.get('/:id/current-stakes', getCurrentStakes);
-router.post('/:id/weekly-bets', createWeeklyBet); //just added
+router.post('/:id/weekly-goals', updateWeeklyGoal); //just added
 router.post('/:id/challenges', createBuddyChallenge);
-router.post('/:id/weekly-bets/:challengeId/proof', proofUpload.single('proof'), submitWeeklyBetProof); //just added
-router.get('/:id/weekly-bets/:challengeId/proof/:proofId', getWeeklyBetProof); //just added
-router.get('/:id/weekly-bets/:challengeId/details', getWeeklyChallengeDetails); //just added
+router.post('/:id/weekly-goals/:weeklyGoalId/proof', proofUpload.single('proof'), submitWeeklyGoalProof); //just added
+router.get('/:id/weekly-goals/:weeklyGoalId/proof/:proofId', getWeeklyGoalProof); //just added
+router.get('/:id/weekly-goals/:weeklyGoalId/details', getWeeklyGoalDetails); //just added
 router.post('/:id/calories/log', CalorieLogger);
 router.get('/:id/calories/history', GetCalorieHistory);
 router.get('/workout-models/get', WorkoutModelGetter);

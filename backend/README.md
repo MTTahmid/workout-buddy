@@ -196,20 +196,20 @@ Response includes:
 Response includes:
 
 - `hasCurrentStake` flag
-- active or most recent weekly bet details
+- active or most recent weekly goal details
 - user score snapshot from active buddy pair (`points`, `penalties`)
 
-### Weekly Bets
+### Weekly Goals
 
 | Method | Endpoint | Description |
 | ------ | -------- | ----------- |
-| GET | `/user/weekly-bets/allowed-stakes` | Get preset allowed stake labels |
-| POST | `/user/:id/weekly-bets` | Update weekly goal settings for active buddy pair |
-| POST | `/user/:id/weekly-bets/:challengeId/proof` | Upload weekly goal proof image |
-| GET | `/user/:id/weekly-bets/:challengeId/proof/:proofId` | Stream a specific weekly goal proof image |
-| GET | `/user/:id/weekly-bets/:challengeId/details` | Get weekly goal progress and streak details |
+| GET | `/user/weekly-goals/allowed-stakes` | Get preset allowed stake labels |
+| POST | `/user/:id/weekly-goals` | Update weekly goal settings for active buddy pair |
+| POST | `/user/:id/weekly-goals/:weeklyGoalId/proof` | Upload weekly goal proof image |
+| GET | `/user/:id/weekly-goals/:weeklyGoalId/proof/:proofId` | Stream a specific weekly goal proof image |
+| GET | `/user/:id/weekly-goals/:weeklyGoalId/details` | Get weekly goal progress and streak details |
 
-#### `POST /user/:id/weekly-bets`
+#### `POST /user/:id/weekly-goals`
 
 Request body:
 
@@ -223,19 +223,19 @@ Request body:
 }
 ```
 
-#### `POST /user/:id/weekly-bets/:challengeId/proof`
+#### `POST /user/:id/weekly-goals/:weeklyGoalId/proof`
 
 - `:id` must be one of the weekly goal participants.
 - Content type: `multipart/form-data`
 - File field name: `proof`
 
-#### `GET /user/:id/weekly-bets/:challengeId/proof/:proofId`
+#### `GET /user/:id/weekly-goals/:weeklyGoalId/proof/:proofId`
 
 - Streams proof image bytes from GridFS.
 - `:id` must be one of the weekly goal participants.
 - `:proofId` is the proof subdocument id from the weekly goal.
 
-#### `GET /user/:id/weekly-bets/:challengeId/details`
+#### `GET /user/:id/weekly-goals/:weeklyGoalId/details`
 
 - Returns weekly goal metadata, per-user progress, streak states, and participant progress.
 
