@@ -7,12 +7,14 @@ import {
   ScrollView,
   TouchableOpacity,
   Image,
+  Alert,
   NativeSyntheticEvent,
   NativeScrollEvent,
 } from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import { USER_ID } from "@/constants/user";
 import SideDrawer from "./SideDrawer";
+import * as ImagePicker from "expo-image-picker";
 
 const { width } = Dimensions.get("window");
 
@@ -35,6 +37,8 @@ export default function Dashboard() {
   const [partnerWorkouts, setPartnerWorkouts] = useState(0);
   const [daysLeft, setDaysLeft] = useState(7);
   const [dateRange, setDateRange] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const getFirstName = (name?: string) => {
     const trimmed = name?.trim();
@@ -113,7 +117,7 @@ export default function Dashboard() {
     };
 
     fetchNames();
-  }, [userId]);
+  }, [userId, refreshKey]);
 
   useEffect(() => {
     if (!weeklyGoalId) return;
@@ -157,7 +161,60 @@ export default function Dashboard() {
       }
     };
     fetchDetails();
-  }, [weeklyGoalId, buddyId]);
+  }, [weeklyGoalId, buddyId, refreshKey]);
+
+  const handleLogWorkout = async () => {
+    if (!weeklyGoalId) {
+      Alert.alert("Not ready", "Weekly goal not loaded yet.");
+      return;
+    }
+
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert("Permission needed", "Camera access is required to log a workout.");
+      return;
+    }
+
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ["images"],
+      quality: 0.7,
+    });
+
+    if (result.canceled || !result.assets?.[0]) return;
+
+    const asset = result.assets[0];
+    const uri = asset.uri;
+    const filename = uri.split("/").pop() || "proof.jpg";
+    const type = asset.mimeType || "image/jpeg";
+
+    const formData = new FormData();
+    formData.append("proof", {
+      uri,
+      name: filename,
+      type,
+    } as any);
+
+    setUploading(true);
+    try {
+      const res = await fetch(
+        `http://localhost:5001/user/${userId}/weekly-goals/${weeklyGoalId}/proof`,
+        {
+          method: "POST",
+          body: formData,
+        }
+      );
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        Alert.alert("Upload failed", err?.message || "Something went wrong.");
+        return;
+      }
+      setRefreshKey((k) => k + 1);
+    } catch (e) {
+      Alert.alert("Upload failed", "Could not connect to server.");
+    } finally {
+      setUploading(false);
+    }
+  };
 
   return (
     <View style={{ flex: 1 }}>
@@ -316,8 +373,14 @@ export default function Dashboard() {
 
       {/* LOG WORKOUT BUTTON */}
       <View style={styles.logButtonContainer}>
-        <TouchableOpacity style={styles.logButton}>
-          <Text style={styles.logButtonText}>📷 Log today's workout</Text>
+        <TouchableOpacity
+          style={[styles.logButton, uploading && { opacity: 0.5 }]}
+          onPress={handleLogWorkout}
+          disabled={uploading}
+        >
+          <Text style={styles.logButtonText}>
+            {uploading ? "Uploading..." : "📷 Log today's workout"}
+          </Text>
         </TouchableOpacity>
       </View>
 
