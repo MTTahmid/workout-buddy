@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -17,12 +17,51 @@ export default function Dashboard() {
   const params = useLocalSearchParams();
   const userId = (params.id as string) || USER_ID;
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [userName, setUserName] = useState("x");
+  const [buddyName, setBuddyName] = useState("Buddy");
 
   const days = ["F", "S", "S", "M", "T", "W", "T"];
   const userWorkouts = 0;
   const partnerWorkouts = 0;
   const goalWorkouts = 3;
-  const partnerName = "Rakil";
+
+  const getFirstName = (name?: string) => {
+    const trimmed = name?.trim();
+    if (!trimmed) return "";
+    return trimmed.split(/\s+/)[0];
+  };
+
+  useEffect(() => {
+    const fetchNames = async () => {
+      try {
+        const [buddyResponse, usersResponse] = await Promise.all([
+          fetch(`http://localhost:5001/user/${userId}/buddy`),
+          fetch("http://localhost:5001/user/users"),
+        ]);
+
+        if (!buddyResponse.ok || !usersResponse.ok) {
+          throw new Error("Failed to fetch buddy info");
+        }
+
+        const buddyData = await buddyResponse.json();
+        const users = await usersResponse.json();
+
+        const currentUser = Array.isArray(users)
+          ? users.find((item) => String(item?._id) === String(userId))
+          : null;
+
+        const currentUserName = getFirstName(currentUser?.name) || "x";
+        const currentBuddyName = getFirstName(buddyData?.buddy?.name) || "Buddy";
+
+        setUserName(currentUserName);
+        setBuddyName(currentBuddyName);
+      } catch (error) {
+        console.error("Failed to fetch dashboard names:", error);
+      }
+    };
+
+    fetchNames();
+  }, [userId]);
 
   return (
     <View style={{ flex: 1 }}>
@@ -51,7 +90,7 @@ export default function Dashboard() {
             <Text style={styles.startButtonText}>START STRONG</Text>
           </TouchableOpacity>
           <Text style={styles.winTitle}>Win the week early</Text>
-          <Text style={styles.winSubtitle}>Set the tone before {partnerName} does</Text>
+          <Text style={styles.winSubtitle}>Set the tone before {buddyName} does</Text>
         </View>
 
         {/* THIS WEEK */}
@@ -67,7 +106,7 @@ export default function Dashboard() {
             {/* Left Column - User */}
             <View style={styles.weekColumn}>
               <View style={styles.personHeaderRow}>
-                <Text style={styles.personLabel}>x</Text>
+                <Text style={styles.personLabel}>{userName}</Text>
                 <View style={styles.personCountBadge}>
                   <Text style={styles.personCount}>{userWorkouts}/{goalWorkouts}</Text>
                 </View>
@@ -90,7 +129,7 @@ export default function Dashboard() {
             {/* Right Column - Partner */}
             <View style={styles.weekColumn}>
               <View style={styles.personHeaderRow}>
-                <Text style={styles.personLabel}>{partnerName}</Text>
+                <Text style={styles.personLabel}>{buddyName}</Text>
                 <View style={styles.personCountBadge}>
                   <Text style={styles.personCount}>{partnerWorkouts}/{goalWorkouts}</Text>
                 </View>
