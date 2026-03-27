@@ -10,6 +10,7 @@ import {
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { useState, useEffect } from "react";
 import { USER_ID } from "@/constants/user";
+import { API_BASE_URL } from "@/constants/api";
 
 export default function Partner() {
   const router = useRouter();
@@ -23,7 +24,7 @@ export default function Partner() {
     const fetchPairingCode = async () => {
       try {
         const response = await fetch(
-          `http://localhost:5001/user/${userId}/pairing-code`
+          `${API_BASE_URL}/user/${userId}/pairing-code`
         );
         const data = await response.json();
         setPairingCode(data.pairingCode || "");
