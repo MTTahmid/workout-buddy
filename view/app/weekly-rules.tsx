@@ -1,5 +1,5 @@
 import React from "react";
-import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
+import { View, Text, StyleSheet, TouchableOpacity, Pressable, Alert, ActivityIndicator } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { useState, useEffect } from "react";
 import { USER_ID } from "@/constants/user";
@@ -8,33 +8,92 @@ export default function WeeklyRules() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const userId = (params.id as string) || USER_ID;
-  const [selected, setSelected] = useState("dinner");
+  const [selectedStake, setSelectedStake] = useState("");
   const [stakes, setStakes] = useState<Array<{ id: string; label: string }>>([]);
+  const [goal, setGoal] = useState(3);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    const fetchStakes = async () => {
+    const fetchData = async () => {
       try {
-        const response = await fetch("http://localhost:5001/user/weekly-bets/allowed-stakes");
-        const data = await response.json();
-        const formattedStakes = (data.allowedStakes || []).map((stake: string, index: number) => ({
+        const [stakesRes, currentRes] = await Promise.all([
+          fetch("http://localhost:5001/user/weekly-goals/allowed-stakes"),
+          fetch(`http://localhost:5001/user/${userId}/weekly-goals`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({}),
+          }),
+        ]);
+
+        const stakesData = await stakesRes.json();
+        const formattedStakes = (stakesData.allowedStakes || []).map((stake: string, index: number) => ({
           id: `stake-${index}`,
           label: stake,
         }));
         setStakes(formattedStakes);
-        if (formattedStakes.length > 0) {
-          setSelected(formattedStakes[0].id);
+
+        if (currentRes.ok) {
+          const currentData = await currentRes.json();
+          const savedGoal = currentData?.weeklyGoal?.weeklyWorkoutGoal;
+          const savedStake = currentData?.weeklyGoal?.stake;
+
+          if (Number.isInteger(savedGoal) && savedGoal >= 1 && savedGoal <= 7) {
+            setGoal(savedGoal);
+          }
+          if (savedStake) {
+            setSelectedStake(savedStake);
+          } else if (formattedStakes.length > 0) {
+            setSelectedStake(formattedStakes[0].label);
+          }
+        } else if (formattedStakes.length > 0) {
+          setSelectedStake(formattedStakes[0].label);
         }
       } catch (error) {
-        console.error("Failed to fetch stakes:", error);
+        console.error("Failed to fetch data:", error);
       }
     };
 
-    fetchStakes();
-  }, []);
+    fetchData();
+  }, [userId]);
+
+  const handleSave = async () => {
+    if (!selectedStake) {
+      Alert.alert("Error", "Please select a stake.");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const response = await fetch(`http://localhost:5001/user/${userId}/weekly-goals`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          weeklyWorkoutGoal: goal,
+          stake: selectedStake,
+          status: "active",
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        Alert.alert("Error", data.message || "Failed to save.");
+        return;
+      }
+
+      Alert.alert("Saved", data.message || "Weekly goal updated!", [
+        { text: "OK", onPress: () => router.back() },
+      ]);
+    } catch (error) {
+      Alert.alert("Error", "Something went wrong.");
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <View style={styles.container}>
-      <TouchableOpacity onPress={() => router.back()}>
+      <TouchableOpacity onPress={() => router.replace(`/dashboard?id=${userId}`)}>
         <Text style={styles.back}>←</Text>
       </TouchableOpacity>
 
@@ -43,7 +102,21 @@ export default function WeeklyRules() {
       <Text style={styles.sectionTitle}>Weekly workout goal</Text>
 
       <View style={styles.goalBox}>
-        <Text style={styles.goalHighlight}>3 days</Text>
+        <View style={styles.goalRow}>
+          <TouchableOpacity
+            style={styles.goalArrow}
+            onPress={() => setGoal((prev) => Math.max(1, prev - 1))}
+          >
+            <Text style={styles.goalArrowText}>−</Text>
+          </TouchableOpacity>
+          <Text style={styles.goalHighlight}>{goal} days</Text>
+          <TouchableOpacity
+            style={styles.goalArrow}
+            onPress={() => setGoal((prev) => Math.min(7, prev + 1))}
+          >
+            <Text style={styles.goalArrowText}>+</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       <Text style={styles.sectionTitle}>Wager for missed workout</Text>
@@ -57,14 +130,14 @@ export default function WeeklyRules() {
             key={item.id}
             style={[
               styles.option,
-              selected === item.id && styles.optionSelected,
+              selectedStake === item.label && styles.optionSelected,
             ]}
-            onPress={() => setSelected(item.id)}
+            onPress={() => setSelectedStake(item.label)}
           >
             <Text
               style={[
                 styles.optionText,
-                selected === item.id && styles.optionTextSelected,
+                selectedStake === item.label && styles.optionTextSelected,
               ]}
             >
               {item.label}
@@ -77,9 +150,21 @@ export default function WeeklyRules() {
         <Text style={styles.createText}>Create your own</Text>
       </TouchableOpacity>
 
-      <TouchableOpacity style={styles.saveButton}>
-        <Text style={styles.saveText}>Save</Text>
-      </TouchableOpacity>
+      <Pressable
+        style={({ pressed }) => [
+          styles.saveButton,
+          pressed && styles.saveButtonPressed,
+          saving && { opacity: 0.6 },
+        ]}
+        onPress={handleSave}
+        disabled={saving}
+      >
+        {saving ? (
+          <ActivityIndicator color="#000" />
+        ) : (
+          <Text style={styles.saveText}>Save</Text>
+        )}
+      </Pressable>
     </View>
   );
 }
@@ -120,9 +205,32 @@ const styles = StyleSheet.create({
   goalBox: {
     backgroundColor: "#111",
     borderRadius: 20,
-    paddingVertical: 30,
+    paddingVertical: 20,
     alignItems: "center",
     marginBottom: 30,
+  },
+
+  goalRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 30,
+  },
+
+  goalArrow: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#222",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#444",
+  },
+
+  goalArrowText: {
+    color: "#39d2b4",
+    fontSize: 24,
+    fontWeight: "600",
   },
 
   goalHighlight: {
@@ -179,6 +287,10 @@ const styles = StyleSheet.create({
     paddingVertical: 20,
     borderRadius: 40,
     alignItems: "center",
+  },
+
+  saveButtonPressed: {
+    backgroundColor: "#39d2b4",
   },
 
   saveText: {
