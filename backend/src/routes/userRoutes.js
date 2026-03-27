@@ -4,6 +4,8 @@ import {
   fetchPairingCode,
   buddyUp,
   getBuddyInfo,
+  getBuddyMoneyInfo,
+  toggleBuddyMonetary,
   getWeeklyWorkoutRoutine,
   getUserHistory,
   getChallengePhotos,
@@ -47,6 +49,8 @@ router.post('/:id/weekly-goals/allowed-stakes', addWeeklyGoalStake); //just adde
 router.get('/:id/pairing-code', fetchPairingCode);
 router.put('/:id/buddy/:pairingCode', buddyUp);
 router.get('/:id/buddy', getBuddyInfo);
+router.get('/:id/buddy/money', getBuddyMoneyInfo);
+router.put('/:id/buddy/money/toggle', toggleBuddyMonetary);
 router.get('/:id/weekly-workout-routine', getWeeklyWorkoutRoutine);
 router.get('/:id/history', getUserHistory);
 router.get('/:id/challenge-photos', getChallengePhotos);
