@@ -186,6 +186,71 @@ export async function buddyUp(req, res) {
   }
 }
 
+export async function getBuddyInfo(req, res) {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ message: 'Invalid user id' });
+    }
+
+    const user = await Users.findById(id).select('_id');
+
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    const buddyPair = await BuddyPair.findOne({
+      members: user._id,
+      status: 'active',
+    })
+      .sort({ createdAt: -1 })
+      .select('_id members memberScores status createdAt');
+
+    if (!buddyPair) {
+      return res.status(404).json({ message: 'Active buddy pair not found' });
+    }
+
+    const buddyId = buddyPair.members.find(
+      (memberId) => String(memberId) !== String(user._id)
+    );
+
+    if (!buddyId) {
+      return res.status(404).json({ message: 'Buddy not found in pair' });
+    }
+
+    const buddy = await Users.findById(buddyId)
+      .select('_id name profile goals performanceTier streak habits createdAt')
+      .lean();
+
+    if (!buddy) {
+      return res.status(404).json({ message: 'Buddy user not found' });
+    }
+
+    const buddyScore = Array.isArray(buddyPair.memberScores)
+      ? buddyPair.memberScores.find((entry) => String(entry.userId) === String(buddy._id))
+      : null;
+
+    return res.status(200).json({
+      userId: id,
+      buddyPair: {
+        id: buddyPair._id,
+        status: buddyPair.status,
+        createdAt: buddyPair.createdAt,
+      },
+      buddy: {
+        ...buddy,
+        score: {
+          points: buddyScore?.points ?? 0,
+          penalties: buddyScore?.penalties ?? 0,
+        },
+      },
+    });
+  } catch (error) {
+    return res.status(500).json({ message: 'Failed to fetch buddy info' });
+  }
+}
+
 export async function getWeeklyWorkoutRoutine(req, res) {
   try {
     const { id } = req.params;

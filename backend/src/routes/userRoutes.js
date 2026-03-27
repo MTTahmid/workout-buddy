@@ -3,6 +3,7 @@ import {
   getUsers,
   fetchPairingCode,
   buddyUp,
+  getBuddyInfo,
   getWeeklyWorkoutRoutine,
   getUserHistory,
   getChallengePhotos,
@@ -40,6 +41,7 @@ router.get('/users', getUsers);
 router.get('/weekly-bets/allowed-stakes', getAllowedStakes);
 router.get('/:id/pairing-code', fetchPairingCode);
 router.put('/:id/buddy/:pairingCode', buddyUp);
+router.get('/:id/buddy', getBuddyInfo);
 router.get('/:id/weekly-workout-routine', getWeeklyWorkoutRoutine);
 router.get('/:id/history', getUserHistory);
 router.get('/:id/challenge-photos', getChallengePhotos);
