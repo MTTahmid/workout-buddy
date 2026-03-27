@@ -20,21 +20,22 @@ backend/
     │   ├── db.js
     │   └── gridfs.js
     ├── controllers/
-    │   ├── userController.js
-    │   └── workoutController.js
+    │   └── userController.js
     ├── middleware/
     │   └── proofUpload.js
     ├── models/
     │   ├── Users.js
     │   ├── Workout.js
+    │   ├── WorkoutModel.js
     │   ├── BuddyPair.js
     │   ├── BuddyWorkout.js
     │   ├── BuddyChallenge.js
     │   ├── CalorieTracker.js
-    │   └── Challenge.js
+    │   ├── Challenge.js
+    │   ├── ActiveWorkoutModelSession.js
+    │   └── WMCompletionHistory.js
     └── routes/
-        ├── userRoutes.js
-        └── workoutRoutes.js
+        └── userRoutes.js
 ```
 
 ## Setup
@@ -206,10 +207,10 @@ Rules:
 
 | Method | Endpoint | Description |
 | ------ | -------- | ----------- |
-| POST | `/user/:id/calories` | Log a new calorie entry |
-| GET | `/user/:id/calories` | Get calorie history for user |
+| POST | `/user/:id/calories/log` | Log a new calorie entry |
+| GET | `/user/:id/calories/history` | Get calorie history for user |
 
-#### `POST /user/:id/calories`
+#### `POST /user/:id/calories/log`
 
 Request body:
 
@@ -223,9 +224,28 @@ Request body:
 }
 ```
 
-#### `GET /user/:id/calories`
+#### `GET /user/:id/calories/history`
 
 Returns array of calorie tracking entries with metrics like weight, goal, workout type, duration, calories burned, and whether goal was met.
+
+### Workout Models
+
+| Method | Endpoint | Description |
+| ------ | -------- | ----------- |
+| GET | `/user/workout-models/get` | Get all available workout models |
+| GET | `/user/:id/workout-models/get` | Get user's custom workout models |
+| POST | `/user/:id/workout-models/create` | Create a new workout model |
+| POST | `/user/:id/workout-models/edit` | Edit an existing workout model |
+| POST | `/user/:id/workout-models/delete` | Delete a workout model |
+
+### Active Workout Model Sessions
+
+| Method | Endpoint | Description |
+| ------ | -------- | ----------- |
+| POST | `/user/:id/active-workout-model-session/start` | Start a new workout session |
+| GET | `/user/:id/active-workout-model-session/tracker` | Get current session tracking data |
+| POST | `/user/:id/active-workout-model-session/update` | Update session progress |
+| DELETE | `/user/:id/active-workout-model-session/end` | End current workout session |
 - Images only, max size 5MB.
 - Proof is stored in Mongo GridFS bucket: `challengeProofs`.
 
