@@ -204,7 +204,10 @@ Response includes:
 | Method | Endpoint | Description |
 | ------ | -------- | ----------- |
 | GET | `/user/weekly-bets/allowed-stakes` | Get preset allowed stake labels |
-| POST | `/user/:id/weekly-bets` | Create a weekly bet between active buddies |
+| POST | `/user/:id/weekly-bets` | Update weekly goal settings for active buddy pair |
+| POST | `/user/:id/weekly-bets/:challengeId/proof` | Upload weekly goal proof image |
+| GET | `/user/:id/weekly-bets/:challengeId/proof/:proofId` | Stream a specific weekly goal proof image |
+| GET | `/user/:id/weekly-bets/:challengeId/details` | Get weekly goal progress and streak details |
 
 #### `POST /user/:id/weekly-bets`
 
@@ -220,14 +223,27 @@ Request body:
 }
 ```
 
+#### `POST /user/:id/weekly-bets/:challengeId/proof`
+
+- `:id` must be one of the weekly goal participants.
+- Content type: `multipart/form-data`
+- File field name: `proof`
+
+#### `GET /user/:id/weekly-bets/:challengeId/proof/:proofId`
+
+- Streams proof image bytes from GridFS.
+- `:id` must be one of the weekly goal participants.
+- `:proofId` is the proof subdocument id from the weekly goal.
+
+#### `GET /user/:id/weekly-bets/:challengeId/details`
+
+- Returns weekly goal metadata, per-user progress, streak states, and participant progress.
+
 ### Buddy Challenges
 
 | Method | Endpoint | Description |
 | ------ | -------- | ----------- |
 | POST | `/user/:id/challenges` | Challenger creates challenge for a buddy |
-| POST | `/user/:id/challenges/:challengeId/proof` | Target uploads proof image |
-| GET | `/user/:id/challenges/:challengeId/proof` | Challenger/target streams proof image |
-| PUT | `/user/:id/challenges/:challengeId/resolve` | Challenger accepts/rejects proof |
 
 #### `POST /user/:id/challenges`
 
@@ -247,12 +263,6 @@ Rules:
 - `:id` is the challenger id.
 - Only active buddies can challenge each other.
 - Challenge starts with `status = "pending"`.
-
-#### `POST /user/:id/challenges/:challengeId/proof`
-
-- `:id` must be the target id.
-- Content type: `multipart/form-data`
-- File field name: `proof`
 
 ### Calorie Tracking
 
@@ -297,32 +307,6 @@ Returns array of calorie tracking entries with metrics like weight, goal, workou
 | GET | `/user/:id/active-workout-model-session/tracker` | Get current session tracking data |
 | POST | `/user/:id/active-workout-model-session/update` | Update session progress |
 | DELETE | `/user/:id/active-workout-model-session/end` | End current workout session |
-- Images only, max size 5MB.
-- Proof is stored in Mongo GridFS bucket: `challengeProofs`.
-
-#### `PUT /user/:id/challenges/:challengeId/resolve`
-
-Request body:
-
-```json
-{
-	"accepted": true,
-	"note": "Looks good"
-}
-```
-
-Rules:
-
-- `:id` must be the challenger id.
-- Challenge must be in `proof_submitted` state.
-- `accepted: true`
-	- target gets challenge points in `buddyPair.memberScores`
-	- challenge status becomes `accepted`
-	- proof file and challenge record are retained
-- `accepted: false`
-	- target gets `+1` penalty in `buddyPair.memberScores`
-	- challenge status becomes `rejected`
-	- proof file and challenge record are retained
 
 ## Data Collections Used
 
