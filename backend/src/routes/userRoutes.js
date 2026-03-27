@@ -24,6 +24,9 @@ import {
   WorkoutModelSessionTracker,
   WorkoutModelSessionUpdater,
   WorkoutModelSessionEnder,
+  FitnessGetter,
+  FitnessSetter,
+  FitnessUpdater,
 } from '../controllers/userController.js';
 import proofUpload from '../middleware/proofUpload.js';
 
@@ -59,6 +62,9 @@ router.post('/:id/active-workout-model-session/start', WorkoutModelSessionStarte
 router.get('/:id/active-workout-model-session/tracker', WorkoutModelSessionTracker);
 router.post('/:id/active-workout-model-session/update', WorkoutModelSessionUpdater);
 router.delete('/:id/active-workout-model-session/end', WorkoutModelSessionEnder);
+router.get('/:id/user-fitness/stats', FitnessGetter);
+router.post('/:id/user-fitness/survey', FitnessSetter);
+router.post('/:id/user-fitness/update', FitnessUpdater);
 /*
 bet has to connection to the points yet
 */

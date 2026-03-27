@@ -1,10 +1,36 @@
+import React from "react";
 import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
-import { useRouter } from "expo-router";
-import { useState } from "react";
+import { useRouter, useLocalSearchParams } from "expo-router";
+import { useState, useEffect } from "react";
+import { USER_ID } from "@/constants/user";
 
 export default function WeeklyRules() {
   const router = useRouter();
+  const params = useLocalSearchParams();
+  const userId = (params.id as string) || USER_ID;
   const [selected, setSelected] = useState("dinner");
+  const [stakes, setStakes] = useState<Array<{ id: string; label: string }>>([]);
+
+  useEffect(() => {
+    const fetchStakes = async () => {
+      try {
+        const response = await fetch("http://localhost:5001/user/weekly-bets/allowed-stakes");
+        const data = await response.json();
+        const formattedStakes = (data.allowedStakes || []).map((stake: string, index: number) => ({
+          id: `stake-${index}`,
+          label: stake,
+        }));
+        setStakes(formattedStakes);
+        if (formattedStakes.length > 0) {
+          setSelected(formattedStakes[0].id);
+        }
+      } catch (error) {
+        console.error("Failed to fetch stakes:", error);
+      }
+    };
+
+    fetchStakes();
+  }, []);
 
   return (
     <View style={styles.container}>
@@ -26,12 +52,7 @@ export default function WeeklyRules() {
       </Text>
 
       <View style={styles.optionsRow}>
-        {[
-          { id: "favor", label: "1 Romantic Favor 😉" },
-          { id: "dinner", label: "1 Dinner 🍽" },
-          { id: "money", label: "$10 💵" },
-          { id: "chore", label: "1 Chore 🧹" },
-        ].map((item) => (
+        {stakes.map((item) => (
           <TouchableOpacity
             key={item.id}
             style={[

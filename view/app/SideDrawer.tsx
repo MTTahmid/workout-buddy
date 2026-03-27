@@ -1,5 +1,7 @@
+import React from "react";
 import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
 import { useRouter } from "expo-router";
+import { USER_ID } from "@/constants/user";
 
 type Props = {
   visible: boolean;
@@ -30,7 +32,7 @@ export default function SideDrawer({ visible, onClose }: Props) {
         <TouchableOpacity
           onPress={() => {
             onClose();
-            router.push("/weekly-rules");
+            router.push(`/weekly-rules?id=${USER_ID}`);
           }}
         >
           <Text style={styles.drawerItem}>Weekly Rules</Text>
@@ -41,7 +43,7 @@ export default function SideDrawer({ visible, onClose }: Props) {
         <TouchableOpacity
           onPress={() => {
             onClose();
-            router.push("/partner");
+            router.push(`/partner?id=${USER_ID}`);
           }}
         >
           <Text style={styles.drawerItem}>Partner</Text>
@@ -50,7 +52,7 @@ export default function SideDrawer({ visible, onClose }: Props) {
         <TouchableOpacity
           onPress={() => {
             onClose();
-            router.push("/history");
+            router.push(`/history?id=${USER_ID}`);
           }}
         >
           <Text style={styles.drawerItem}>History</Text>

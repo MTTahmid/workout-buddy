@@ -8,6 +8,7 @@ import Workout from '../models/Workout.js';
 import WorkoutModel from '../models/WorkoutModel.js';
 import ActiveWorkoutModelSession from '../models/ActiveWorkoutModelSession.js';
 import WMCompletionHistory from '../models/WMCompletionHistory.js';
+import UserFitness from '../models/UserFitness.js';
 import {
   deleteProofFromGridFS,
   getProofDownloadStream,
@@ -1369,4 +1370,473 @@ export async function WorkoutModelSessionEnder(req, res)
     console.error('WorkoutModelSessionEnder error', error);
     return res.status(500).json({ message: 'Failed to end workout model session' });
   }
+}
+export async function FitnessGetter(req, res)
+{
+  try
+  {
+    const { id } = req.params;
+ 
+    if (!mongoose.isValidObjectId(id))
+    {
+      return res.status(400).json({ message: 'Invalid user id' });
+    }
+ 
+    const fitness = await UserFitness.findOne({ userId: id });
+ 
+    if (!fitness)
+    {
+      return res.status(404).json({ message: 'No fitness records found for this user' });
+    }
+ 
+    return res.status(200).json(fitness);
+  }
+  catch(error)
+  {
+    console.error('Fitnessgetter error', error);
+    return res.status(500).json({ message: 'Failed to get user fitness records' });
+  }
+}
+ 
+export async function FitnessSetter(req, res)
+{
+  try
+  {
+    const { id } = req.params;
+    if (!mongoose.isValidObjectId(id))
+    {
+      return res.status(400).json({ message: 'Invalid user id' });
+    }
+ 
+    const existing = await UserFitness.findOne({ userId: id });
+    if (existing)
+    {
+      return res.status(409).json({ message: 'Fitness record already exists for this user' });
+    }
+ 
+    const
+    {
+      cardioEndurance,
+      cardioRecovery,
+      cardioConsistency,
+      cardioGoal,
+      strengthUpperBody,
+      strengthLowerBody,
+      strengthCore,
+      strengthGoal,
+      flexibilityUpperBody,
+      flexibilityLowerBody,
+      flexibilitySpinalMobility,
+      flexibilityGoal,
+      targetFitness,
+    } = req.body;
+ 
+    const requiredFields =
+    {
+      cardioEndurance,
+      cardioRecovery,
+      cardioConsistency,
+      strengthUpperBody,
+      strengthLowerBody,
+      strengthCore,
+      flexibilityUpperBody,
+      flexibilityLowerBody,
+      flexibilitySpinalMobility,
+    };
+ 
+    const missingFields = Object.keys(requiredFields).filter(key => requiredFields[key] === undefined || requiredFields[key] === null);
+ 
+    if (missingFields.length)
+    {
+      return res.status(400).json({ message: 'Missing required fields', fields: missingFields });
+    }
+ 
+    const outOfRangeFields = Object.keys(requiredFields).filter(key => !isValidScore(requiredFields[key]));
+ 
+    if (outOfRangeFields.length)
+    {
+      return res.status(400).json({ message: 'Sub-scores must be numbers between 1 and 10', fields: outOfRangeFields });
+    }
+ 
+    const optionalGoals = { cardioGoal, strengthGoal, flexibilityGoal, targetFitness };
+ 
+    const invalidGoals = Object.keys(optionalGoals).filter(key => optionalGoals[key] !== undefined && !isValidScore(optionalGoals[key]));
+ 
+    if (invalidGoals.length)
+    {
+      return res.status(400).json({ message: 'Goals must be numbers between 1 and 10', fields: invalidGoals });
+    }
+ 
+    const cardioLevel      = calculateDefaultLevel(cardioEndurance, cardioRecovery, cardioConsistency);
+    const strengthLevel    = calculateDefaultLevel(strengthUpperBody, strengthLowerBody, strengthCore);
+    const flexibilityLevel = calculateDefaultLevel(flexibilityUpperBody, flexibilityLowerBody, flexibilitySpinalMobility);
+    const overallLevel     = calculateDefaultLevel(cardioLevel, strengthLevel, flexibilityLevel);
+ 
+    const finalCardioGoal      = cardioGoal      ?? generateDefaultGoal(cardioLevel);
+    const finalStrengthGoal    = strengthGoal    ?? generateDefaultGoal(strengthLevel);
+    const finalFlexibilityGoal = flexibilityGoal ?? generateDefaultGoal(flexibilityLevel);
+    const finalTargetFitness   = targetFitness   ?? generateDefaultGoal(overallLevel);
+ 
+    const projectedCompletionDate = new Date();
+    projectedCompletionDate.setDate(projectedCompletionDate.getDate() + 14);
+ 
+    const snapshot =
+    {
+      takenAt: new Date(),
+      cardioLevel,
+      strengthLevel,
+      flexibilityLevel,
+      overallLevel,
+    };
+ 
+    const fitness = await UserFitness.create(
+      {
+        userId: id,
+        cardioEndurance,
+        cardioRecovery,
+        cardioConsistency,
+        cardioLevel,
+        cardioGoal: finalCardioGoal,
+        cardioGoalUserAdjusted: !!cardioGoal,
+ 
+        strengthUpperBody,
+        strengthLowerBody,
+        strengthCore,
+        strengthLevel,
+        strengthGoal: finalStrengthGoal,
+        strengthGoalUserAdjusted: !!strengthGoal,
+ 
+        flexibilityUpperBody,
+        flexibilityLowerBody,
+        flexibilitySpinalMobility,
+        flexibilityLevel,
+        flexibilityGoal: finalFlexibilityGoal,
+        flexibilityGoalUserAdjusted: !!flexibilityGoal,
+ 
+        overallLevel,
+        targetFitness: finalTargetFitness,
+        targetUserAdjusted: !!targetFitness,
+ 
+        cardioGRLastUpdated:      new Date(),
+        strengthGRLastUpdated:    new Date(),
+        flexibilityGRLastUpdated: new Date(),
+        overallGRLastUpdated:     new Date(),
+ 
+        projectedCompletionDate,
+        lastProjectionUpdate: new Date(),
+ 
+        assessmentHistory: [snapshot],
+ 
+        onboardingComplete: true,
+      },
+    );
+ 
+    return res.status(201).json(fitness);
+  }
+  catch(error)
+  {
+    console.error('FitnessSetter error', error);
+    return res.status(500).json({ message: 'Failed to set user fitness' });
+  }
+}
+ 
+export async function FitnessUpdater(req, res)
+{
+  try
+  {
+    const { id } = req.params;
+    if (!mongoose.isValidObjectId(id))
+    {
+      return res.status(400).json({ message: 'Invalid user id' });
+    }
+ 
+    const fitness = await UserFitness.findOne({ userId: id });
+    if (!fitness)
+    {
+      return res.status(404).json({ message: 'Fitness record does not exist for this user' });
+    }
+ 
+    const
+    {
+      cardioEndurance,
+      cardioRecovery,
+      cardioConsistency,
+      cardioGoal,
+      strengthUpperBody,
+      strengthLowerBody,
+      strengthCore,
+      strengthGoal,
+      flexibilityUpperBody,
+      flexibilityLowerBody,
+      flexibilitySpinalMobility,
+      flexibilityGoal,
+      targetFitness,
+      cardioWeight,
+      strengthWeight,
+      flexibilityWeight,
+    } = req.body;
+ 
+    const subScores =
+    {
+      cardioEndurance,
+      cardioRecovery,
+      cardioConsistency,
+      strengthUpperBody,
+      strengthLowerBody,
+      strengthCore,
+      flexibilityUpperBody,
+      flexibilityLowerBody,
+      flexibilitySpinalMobility,
+    };
+ 
+    const outOfRangeScores = Object.keys(subScores).filter(key => subScores[key] !== undefined && subScores[key] !== null && !isValidScore(subScores[key]));
+ 
+    if (outOfRangeScores.length)
+    {
+      return res.status(400).json({ message: 'Sub-scores must be numbers between 1 and 10', fields: outOfRangeScores });
+    }
+ 
+    const goalToCurrentLevel =
+    {
+      cardioGoal:      fitness.cardioLevel,
+      strengthGoal:    fitness.strengthLevel,
+      flexibilityGoal: fitness.flexibilityLevel,
+      targetFitness:   fitness.overallLevel,
+    };
+ 
+    const optionalGoals =
+    {
+      cardioGoal,
+      strengthGoal,
+      flexibilityGoal,
+      targetFitness,
+    };
+ 
+    const invalidGoals = Object.keys(optionalGoals).filter(key =>
+      optionalGoals[key] !== undefined &&
+      optionalGoals[key] !== null &&
+      (!isValidScore(optionalGoals[key]) || optionalGoals[key] <= goalToCurrentLevel[key])
+    );
+ 
+    if (invalidGoals.length)
+    {
+      return res.status(400).json({ message: 'Goals must be numbers between 1 and 10 and greater than current level', fields: invalidGoals });
+    }
+ 
+    const weights =
+    {
+      cardioWeight,
+      strengthWeight,
+      flexibilityWeight,
+    };
+ 
+    const weightSent = Object.keys(weights).filter(key => weights[key] !== undefined && weights[key] !== null);
+    if (weightSent.length > 0)
+    {
+      if (cardioWeight === undefined || strengthWeight === undefined || flexibilityWeight === undefined)
+      {
+        return res.status(400).json({ message: 'All three weights must be provided together: cardioWeight, strengthWeight, flexibilityWeight' });
+      }
+ 
+      const outOfRangeWeights = Object.keys(weights).filter(key => typeof weights[key] !== 'number' || weights[key] < 0 || weights[key] > 1);
+ 
+      if (outOfRangeWeights.length)
+      {
+        return res.status(400).json({ message: 'Weights must be numbers between 0 and 1', fields: outOfRangeWeights });
+      }
+ 
+      const weightsSum = cardioWeight + strengthWeight + flexibilityWeight;
+      if (Math.round(weightsSum * 100) / 100 !== 1)
+      {
+        return res.status(400).json({ message: 'Weights must add up to 1' });
+      }
+    }
+ 
+    const newCardioEndurance           = cardioEndurance           ?? fitness.cardioEndurance;
+    const newCardioRecovery            = cardioRecovery            ?? fitness.cardioRecovery;
+    const newCardioConsistency         = cardioConsistency         ?? fitness.cardioConsistency;
+    const newStrengthUpperBody         = strengthUpperBody         ?? fitness.strengthUpperBody;
+    const newStrengthLowerBody         = strengthLowerBody         ?? fitness.strengthLowerBody;
+    const newStrengthCore              = strengthCore              ?? fitness.strengthCore;
+    const newFlexibilityUpperBody      = flexibilityUpperBody      ?? fitness.flexibilityUpperBody;
+    const newFlexibilityLowerBody      = flexibilityLowerBody      ?? fitness.flexibilityLowerBody;
+    const newFlexibilitySpinalMobility = flexibilitySpinalMobility ?? fitness.flexibilitySpinalMobility;
+ 
+    const newCardioWeight      = cardioWeight      ?? fitness.cardioWeight;
+    const newStrengthWeight    = strengthWeight    ?? fitness.strengthWeight;
+    const newFlexibilityWeight = flexibilityWeight ?? fitness.flexibilityWeight;
+ 
+    const newCardioLevel      = calculateDefaultLevel(newCardioEndurance, newCardioRecovery, newCardioConsistency);
+    const newStrengthLevel    = calculateDefaultLevel(newStrengthUpperBody, newStrengthLowerBody, newStrengthCore);
+    const newFlexibilityLevel = calculateDefaultLevel(newFlexibilityUpperBody, newFlexibilityLowerBody, newFlexibilitySpinalMobility);
+    const newOverallLevel     = calculateLevel(newCardioLevel, newCardioWeight, newStrengthLevel, newStrengthWeight, newFlexibilityLevel, newFlexibilityWeight);
+ 
+    const newCardioGR      = GRCalc(fitness.cardioLevel,      newCardioLevel,      fitness.cardioGRSampleSize,      fitness.cardioGRValue,      fitness.updatedAt);
+    const newStrengthGR    = GRCalc(fitness.strengthLevel,    newStrengthLevel,    fitness.strengthGRSampleSize,    fitness.strengthGRValue,    fitness.updatedAt);
+    const newFlexibilityGR = GRCalc(fitness.flexibilityLevel, newFlexibilityLevel, fitness.flexibilityGRSampleSize, fitness.flexibilityGRValue, fitness.updatedAt);
+    const newOverallGR     = GRCalc(fitness.overallLevel,     newOverallLevel,     fitness.overallGRSampleSize,     fitness.overallGRValue,     fitness.updatedAt);
+ 
+    const newCardioGoal      = cardioGoal      ?? generateGoal(newCardioLevel,   newCardioGR.value);
+    const newStrengthGoal    = strengthGoal    ?? generateGoal(newStrengthLevel,  newStrengthGR.value);
+    const newFlexibilityGoal = flexibilityGoal ?? generateGoal(newFlexibilityLevel, newFlexibilityGR.value);
+    const newTargetFitness   = targetFitness   ?? generateGoal(newOverallLevel,  newOverallGR.value);
+ 
+    const projectedCompletionDate = newCD(newOverallLevel, newTargetFitness, newOverallGR.value);
+ 
+    const snapshot =
+    {
+      takenAt: new Date(),
+      cardioLevel:      newCardioLevel,
+      strengthLevel:    newStrengthLevel,
+      flexibilityLevel: newFlexibilityLevel,
+      overallLevel:     newOverallLevel,
+    };
+ 
+    const updatedFitness = await UserFitness.findOneAndUpdate(
+      { userId: id },
+      {
+        $set:
+        {
+          cardioEndurance: newCardioEndurance,
+          cardioRecovery: newCardioRecovery,
+          cardioConsistency: newCardioConsistency,
+          cardioLevel: newCardioLevel,
+          cardioGoal: newCardioGoal,
+          cardioGoalUserAdjusted: !!cardioGoal,
+ 
+          strengthUpperBody: newStrengthUpperBody,
+          strengthLowerBody: newStrengthLowerBody,
+          strengthCore: newStrengthCore,
+          strengthLevel: newStrengthLevel,
+          strengthGoal: newStrengthGoal,
+          strengthGoalUserAdjusted: !!strengthGoal,
+ 
+          flexibilityUpperBody: newFlexibilityUpperBody,
+          flexibilityLowerBody: newFlexibilityLowerBody,
+          flexibilitySpinalMobility: newFlexibilitySpinalMobility,
+          flexibilityLevel: newFlexibilityLevel,
+          flexibilityGoal: newFlexibilityGoal,
+          flexibilityGoalUserAdjusted: !!flexibilityGoal,
+ 
+          cardioWeight: newCardioWeight,
+          strengthWeight: newStrengthWeight,
+          flexibilityWeight: newFlexibilityWeight,
+ 
+          overallLevel: newOverallLevel,
+          targetFitness: newTargetFitness,
+          targetUserAdjusted: !!targetFitness,
+ 
+          cardioGRValue:      newCardioGR.value,
+          strengthGRValue:    newStrengthGR.value,
+          flexibilityGRValue: newFlexibilityGR.value,
+          overallGRValue:     newOverallGR.value,
+ 
+          cardioGRSampleSize:      newCardioGR.sampleSize,
+          strengthGRSampleSize:    newStrengthGR.sampleSize,
+          flexibilityGRSampleSize: newFlexibilityGR.sampleSize,
+          overallGRSampleSize:     newOverallGR.sampleSize,
+ 
+          cardioGRLastUpdated:      new Date(),
+          strengthGRLastUpdated:    new Date(),
+          flexibilityGRLastUpdated: new Date(),
+          overallGRLastUpdated:     new Date(),
+ 
+          projectedCompletionDate,
+          lastProjectionUpdate: new Date(),
+ 
+          onboardingComplete: true,
+        },
+        $push: { assessmentHistory: snapshot },
+      },
+      { new: true },
+    );
+ 
+    return res.status(200).json(updatedFitness);
+  }
+  catch(error)
+  {
+    console.error('FitnessUpdater error', error);
+    return res.status(500).json({ message: 'Failed to update user fitness' });
+  }
+}
+export function isValidScore(val)
+{
+  if (typeof val === 'number' && val >= 1 && val <= 10)
+  {
+    return true;
+  }
+  else
+  {
+    return false;
+  }
+}
+export function calculateDefaultLevel(x, y, z)
+{
+  return Math.round((x+y+z)/3);
+}
+export function calculateLevel(x, xw, y, yw, z, zw)
+{
+  return Math.round((x * xw + y * yw + z * zw) / (xw + yw + zw));
+}
+export function generateDefaultGoal(x)
+{
+  const goal = x+1;
+  if (goal <= 10)
+  {
+    return goal;
+  }
+  else
+  {
+    return 10;
+  }
+}
+export function generateGoal(x, y)
+{
+  let goal = Math.round(x + y);
+  if (goal === x)
+  {
+    goal += 1;
+  }
+  if (goal <= 10)
+  {
+    return goal;
+  }
+  else
+  {
+    return 10;
+  }
+}
+export function GRCalc(prevLevel, newLevel, prevSampleSize, prevAverageRate, lastUpdated)
+{
+  if (!lastUpdated)
+  {
+    return { value: 0, sampleSize: 1 };
+  }
+
+  const msPerWeek      = 1000 * 60 * 60 * 24 * 7;
+  const weeksSinceLast = (Date.now() - new Date(lastUpdated).getTime()) / msPerWeek;
+
+  if (weeksSinceLast === 0)
+  {
+    return { value: prevAverageRate, sampleSize: prevSampleSize };
+  }
+
+  const currentRate   = (newLevel - prevLevel) / weeksSinceLast;
+  const newSampleSize = prevSampleSize + 1;
+  const averagedRate  = parseFloat(((prevAverageRate * prevSampleSize + currentRate) / newSampleSize).toFixed(4));
+
+  return { value: averagedRate, sampleSize: newSampleSize };
+}
+export function newCD(currentLevel, targetLevel, growthRatePerWeek)
+{
+  if (growthRatePerWeek <= 0 || currentLevel >= targetLevel)
+  {
+    return null;
+  }
+
+  const weeksNeeded   = (targetLevel - currentLevel) / growthRatePerWeek;
+  const msNeeded      = weeksNeeded * 7 * 24 * 60 * 60 * 1000;
+  const projectedDate = new Date(Date.now() + msNeeded);
+
+  return projectedDate;
 }

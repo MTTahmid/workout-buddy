@@ -4,18 +4,25 @@ import {
   Text,
   StyleSheet,
   Dimensions,
-  FlatList,
   ScrollView,
   TouchableOpacity,
 } from "react-native";
+import { useLocalSearchParams } from "expo-router";
+import { USER_ID } from "@/constants/user";
 import SideDrawer from "./SideDrawer";
 
 const { width } = Dimensions.get("window");
-const CARD_WIDTH = width * 0.55;
 
 export default function Dashboard() {
-  const data = [1, 2, 3];
+  const params = useLocalSearchParams();
+  const userId = (params.id as string) || USER_ID;
   const [drawerOpen, setDrawerOpen] = useState(false);
+
+  const days = ["F", "S", "S", "M", "T", "W", "T"];
+  const userWorkouts = 0;
+  const partnerWorkouts = 0;
+  const goalWorkouts = 3;
+  const partnerName = "Rakil";
 
   return (
     <View style={{ flex: 1 }}>
@@ -31,75 +38,97 @@ export default function Dashboard() {
           </TouchableOpacity>
 
           <View style={styles.badge}>
-            <Text style={styles.badgeText}>
-               Both hit goal = streak!
-            </Text>
+            <Text style={styles.badgeText}>🔥 Both hit goal = streak!</Text>
           </View>
         </View>
 
-        {/* CAROUSEL */}
-        <View style={styles.carouselWrapper}>
-          <FlatList
-            data={data}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{
-              paddingHorizontal: (width - CARD_WIDTH) / 2,
-            }}
-            keyExtractor={(item) => item.toString()}
-            renderItem={({ item }) => (
-              <View
-                style={{
-                  width: CARD_WIDTH,
-                  marginHorizontal: 10,
-                }}
-              >
-                <View style={styles.storyCard}>
-                  <Text style={styles.photoText}>
-                    Photo {item}
-                  </Text>
+        {/* WIN THE WEEK EARLY CARD */}
+        <View style={styles.winCard}>
+          <View style={styles.dumbellContainer}>
+            <Text style={styles.dumbell}>🏋️</Text>
+          </View>
+          <TouchableOpacity style={styles.startButton}>
+            <Text style={styles.startButtonText}>START STRONG</Text>
+          </TouchableOpacity>
+          <Text style={styles.winTitle}>Win the week early</Text>
+          <Text style={styles.winSubtitle}>Set the tone before {partnerName} does</Text>
+        </View>
+
+        {/* THIS WEEK */}
+        <View style={styles.weekCard}>
+          <View style={styles.weekHeader}>
+            <Text style={styles.sectionTitle}>This Week</Text>
+            <Text style={styles.daysLeft}>⏱️ 7 days left</Text>
+          </View>
+          <Text style={styles.dateRange}>3/27 – 4/3</Text>
+
+          {/* WEEK ROWS */}
+          <View style={styles.weekContent}>
+            {/* Left Column - User */}
+            <View style={styles.weekColumn}>
+              <View style={styles.personHeaderRow}>
+                <Text style={styles.personLabel}>x</Text>
+                <View style={styles.personCountBadge}>
+                  <Text style={styles.personCount}>{userWorkouts}/{goalWorkouts}</Text>
                 </View>
               </View>
-            )}
-          />
-        </View>
+              <View style={styles.dayGrid}>
+                {days.map((day, i) => (
+                  <View
+                    key={i}
+                    style={[
+                      styles.dayCircleSmall,
+                      i === 0 && styles.dayCircleActive,
+                    ]}
+                  >
+                    <Text style={styles.dayTextSmall}>{day}</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
 
-        {/* TIME */}
-        <Text style={styles.time}>
-          21 hours ago
-        </Text>
-
-        {/* WEEK CARD */}
-        <View style={styles.weekCard}>
-          <Text style={styles.sectionTitle}>
-            This Week
-          </Text>
-
-          <Text style={styles.subText}>
-            2/16 - 3/1
-          </Text>
-
-          <View style={styles.peopleRow}>
-            <WeekRow name="ayush" active={3} />
-            <WeekRow name="vru" active={4} />
+            {/* Right Column - Partner */}
+            <View style={styles.weekColumn}>
+              <View style={styles.personHeaderRow}>
+                <Text style={styles.personLabel}>{partnerName}</Text>
+                <View style={styles.personCountBadge}>
+                  <Text style={styles.personCount}>{partnerWorkouts}/{goalWorkouts}</Text>
+                </View>
+              </View>
+              <View style={styles.dayGrid}>
+                {days.map((day, i) => (
+                  <View
+                    key={i}
+                    style={[
+                      styles.dayCircleSmall,
+                      i === 0 && styles.dayCircleOutline,
+                    ]}
+                  >
+                    <Text style={styles.dayTextSmall}>{day}</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
           </View>
         </View>
 
-        {/* STAKES */}
+        {/* THE STAKES */}
         <View style={styles.stakesCard}>
-          <Text style={styles.sectionTitle}>
-            The Stakes 🎯
-          </Text>
-
-          <Text style={styles.highlight}>
-            1 Romantic Favor 😉
-          </Text>
-
-          <Text style={styles.subText}>
-            You're safe this week
-          </Text>
+          <View style={styles.stakesHeader}>
+            <Text style={styles.sectionTitle}>The Stakes 🎯</Text>
+            <Text style={styles.infoIcon}>ℹ️</Text>
+          </View>
+          <Text style={styles.stakesValue}>1 Dinner</Text>
+          <Text style={styles.stakesSubtext}>You need {goalWorkouts - userWorkouts} more workouts this week</Text>
         </View>
       </ScrollView>
+
+      {/* LOG WORKOUT BUTTON */}
+      <View style={styles.logButtonContainer}>
+        <TouchableOpacity style={styles.logButton}>
+          <Text style={styles.logButtonText}>📷 Log today's workout</Text>
+        </TouchableOpacity>
+      </View>
 
       {/* DRAWER */}
       <SideDrawer
@@ -110,159 +139,265 @@ export default function Dashboard() {
   );
 }
 
-function WeekRow({
-  name,
-  active,
-}: {
-  name: string;
-  active: number;
-}) {
-  const days = ["M", "T", "W", "T", "F", "S", "S"];
-
-  return (
-    <View style={{ width: "48%" }}>
-      <Text style={styles.name}>
-        {name}
-      </Text>
-
-      <View style={styles.days}>
-        {days.map((d, i) => (
-          <View
-            key={i}
-            style={[
-              styles.dayCircle,
-              i < active && styles.dayActive,
-            ]}
-          >
-            <Text style={styles.dayText}>
-              {d}
-            </Text>
-          </View>
-        ))}
-      </View>
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#000",
+    paddingHorizontal: 20,
   },
 
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
-    paddingHorizontal: 20,
+    alignItems: "center",
     paddingTop: 60,
-    marginBottom: 30,
+    marginBottom: 25,
   },
 
   menu: {
     color: "#fff",
-    fontSize: 22,
+    fontSize: 24,
   },
 
   badge: {
-    borderColor: "#00d4aa",
+    backgroundColor: "rgba(57, 210, 180, 0.15)",
     borderWidth: 1,
-    paddingHorizontal: 14,
+    borderColor: "#39d2b4",
+    paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 20,
   },
 
   badgeText: {
-    color: "#fff",
+    color: "#39d2b4",
+    fontSize: 13,
+    fontWeight: "500",
   },
 
-  carouselWrapper: {
-    marginBottom: 10,
+  winCard: {
+    backgroundColor: "#1a1a1a",
+    borderWidth: 1,
+    borderColor: "#333",
+    borderRadius: 25,
+    padding: 30,
+    alignItems: "center",
+    marginBottom: 25,
   },
 
-  storyCard: {
-    width: "100%",
-    height: 380,
-    borderRadius: 30,
-    backgroundColor: "#2a2a2a",
+  dumbellContainer: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: "rgba(57, 210, 180, 0.1)",
     justifyContent: "center",
     alignItems: "center",
-  },
-
-  photoText: {
-    color: "#aaa",
-    fontSize: 18,
-  },
-
-  time: {
-    textAlign: "center",
-    color: "#fff",
-    fontSize: 18,
-    marginVertical: 20,
-  },
-
-  weekCard: {
-    backgroundColor: "rgba(0, 212, 170, 0.08)", // mint tint
-    borderWidth: 1,
-    borderColor: "rgba(0, 212, 170, 0.25)",
-    marginHorizontal: 20,
-    padding: 20,
-    borderRadius: 25,
+    borderWidth: 2,
+    borderColor: "rgba(57, 210, 180, 0.3)",
     marginBottom: 20,
   },
-  stakesCard: {
-    backgroundColor: "rgba(255,255,255,0.05)",
-    marginHorizontal: 20,
-    padding: 20,
-    borderRadius: 25,
+
+  dumbell: {
+    fontSize: 60,
   },
-  sectionTitle: {
-    color: "#00d4aa",
-    fontSize: 18,
-    marginBottom: 8,
+
+  startButton: {
+    backgroundColor: "transparent",
+    borderWidth: 1,
+    borderColor: "#39d2b4",
+    paddingVertical: 8,
+    paddingHorizontal: 24,
+    borderRadius: 20,
+    marginBottom: 20,
+  },
+
+  startButtonText: {
+    color: "#39d2b4",
+    fontSize: 12,
     fontWeight: "600",
   },
 
-  subText: {
+  winTitle: {
+    color: "#fff",
+    fontSize: 24,
+    fontWeight: "600",
+    marginBottom: 8,
+    textAlign: "center",
+  },
+
+  winSubtitle: {
     color: "#888",
+    fontSize: 14,
+    textAlign: "center",
+  },
+
+  weekCard: {
+    backgroundColor: "rgba(57, 210, 180, 0.08)",
+    borderWidth: 1,
+    borderColor: "rgba(57, 210, 180, 0.25)",
+    borderRadius: 25,
+    padding: 20,
+    marginBottom: 20,
+  },
+
+  weekHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     marginBottom: 12,
   },
 
-  peopleRow: {
+  sectionTitle: {
+    color: "#fff",
+    fontSize: 18,
+    fontWeight: "600",
+  },
+
+  daysLeft: {
+    color: "#888",
+    fontSize: 12,
+  },
+
+  dateRange: {
+    color: "#666",
+    fontSize: 12,
+    marginBottom: 15,
+  },
+
+  weekContent: {
     flexDirection: "row",
+    gap: 20,
     justifyContent: "space-between",
   },
 
-  name: {
-    color: "#fff",
-    marginBottom: 8,
+  weekColumn: {
+    flex: 1,
+    alignItems: "stretch",
+    gap: 8,
   },
 
-  days: {
+  personHeaderRow: {
     flexDirection: "row",
-    flexWrap: "wrap",
+    alignItems: "center",
+    justifyContent: "space-between",
+    width: "100%",
+    marginBottom: 4,
   },
 
-  dayCircle: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
+  personLabel: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+
+  personCountBadge: {
+    backgroundColor: "rgba(255, 255, 255, 0.08)",
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+
+  personCount: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+
+  dayRow: {
+    flexDirection: "row",
+    gap: 6,
+    justifyContent: "center",
+  },
+
+  dayGrid: {
+    flexDirection: "row",
+    gap: 6,
+    justifyContent: "flex-start",
+    flexWrap: "wrap",
+    maxWidth: 140,
+  },
+
+  dayCircleSmall: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
     backgroundColor: "#333",
     justifyContent: "center",
     alignItems: "center",
-    margin: 4,
+    borderWidth: 1,
+    borderColor: "#444",
   },
 
-  dayActive: {
-    backgroundColor: "#00d4aa",
+  dayCircleActive: {
+    backgroundColor: "#39d2b4",
+    borderColor: "#39d2b4",
   },
 
-  dayText: {
+  dayCircleOutline: {
+    backgroundColor: "transparent",
+    borderWidth: 2,
+    borderColor: "#666",
+  },
+
+  dayTextSmall: {
     color: "#fff",
-    fontSize: 11,
+    fontSize: 10,
+    fontWeight: "600",
   },
 
-  highlight: {
-    color: "#00d4aa",
-    fontSize: 15,
+  stakesCard: {
+    backgroundColor: "rgba(57, 210, 180, 0.08)",
+    borderWidth: 1,
+    borderColor: "rgba(57, 210, 180, 0.25)",
+    borderRadius: 25,
+    padding: 20,
+    marginBottom: 20,
+  },
+
+  stakesHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+
+  infoIcon: {
+    fontSize: 16,
+  },
+
+  stakesValue: {
+    color: "#39d2b4",
+    fontSize: 18,
+    fontWeight: "600",
+    marginBottom: 8,
+  },
+
+  stakesSubtext: {
+    color: "#888",
+    fontSize: 13,
+  },
+
+  logButtonContainer: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: "#000",
+    paddingHorizontal: 20,
+    paddingVertical: 20,
+    borderTopWidth: 1,
+    borderTopColor: "#333",
+  },
+
+  logButton: {
+    backgroundColor: "#39d2b4",
+    paddingVertical: 16,
+    borderRadius: 50,
+    alignItems: "center",
+  },
+
+  logButtonText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "600",
   },
 });
