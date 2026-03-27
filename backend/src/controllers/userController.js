@@ -15,7 +15,6 @@ import {
   uploadProofToGridFS,
 } from '../config/gridfs.js';
 import mongoose from 'mongoose';
-import UserFitness from '../models/UserFitness.js';
 
 const ALLOWED_STAKES = [
   '1 Dinner',
