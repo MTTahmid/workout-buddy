@@ -10,7 +10,6 @@ import ActiveWorkoutModelSession from '../models/ActiveWorkoutModelSession.js';
 import WMCompletionHistory from '../models/WMCompletionHistory.js';
 import UserFitness from '../models/UserFitness.js';
 import {
-  deleteProofFromGridFS,
   getProofDownloadStream,
   uploadProofToGridFS,
 } from '../config/gridfs.js';
@@ -22,6 +21,9 @@ const ALLOWED_STAKES = [
   '1 Chore',
   'Romantic Favor 😉',
 ];
+
+const DEFAULT_WEEKLY_GOAL = 3;
+const DEFAULT_WEEKLY_STAKE = '1 Dinner';
 
 const ALLOWED_WORKOUTS = {
   pushup:  { met: 3.8 },
@@ -67,6 +69,126 @@ function buildMemberScores(memberIds) {
     points: 0,
     penalties: 0,
   }));
+}
+
+function buildWeeklyWindowStart(date = new Date()) {
+  const start = new Date(date);
+  start.setHours(0, 0, 0, 0);
+  return start;
+}
+
+function buildWeeklyWindowEnd(startDate) {
+  const end = new Date(startDate);
+  end.setDate(end.getDate() + 7);
+  return end;
+}
+
+function buildEmptyDailyStreaks(participants) {
+  return participants.map((participantId) => ({
+    userId: participantId,
+    uploadedDays: [],
+  }));
+}
+
+function buildEmptyStreakStatus(participants) {
+  return participants.map((participantId) => ({
+    userId: participantId,
+    streak: false,
+  }));
+}
+
+async function ensureWeeklyGoalForPair(buddyPair) {
+  let challenge = await Challenge.findOne({ buddyPairId: buddyPair._id });
+
+  if (!challenge) {
+    challenge = await Challenge.findOne({
+      participants: { $all: buddyPair.members, $size: 2 },
+    }).sort({ startDate: -1 });
+
+    if (challenge) {
+      challenge.buddyPairId = buddyPair._id;
+      if (!Number.isInteger(challenge.weeklyWorkoutGoal) || challenge.weeklyWorkoutGoal < 1) {
+        challenge.weeklyWorkoutGoal = DEFAULT_WEEKLY_GOAL;
+      }
+      if (!challenge.stake) {
+        challenge.stake = DEFAULT_WEEKLY_STAKE;
+      }
+      if (!Array.isArray(challenge.dailyStreaks) || challenge.dailyStreaks.length === 0) {
+        challenge.dailyStreaks = buildEmptyDailyStreaks(buddyPair.members);
+      }
+      if (!Array.isArray(challenge.streakStatus) || challenge.streakStatus.length === 0) {
+        challenge.streakStatus = buildEmptyStreakStatus(buddyPair.members);
+      }
+      if (!Array.isArray(challenge.proofs)) {
+        challenge.proofs = [];
+      }
+      await challenge.save();
+    }
+  }
+
+  if (!challenge) {
+    const startDate = buildWeeklyWindowStart();
+    const endDate = buildWeeklyWindowEnd(startDate);
+
+    challenge = await Challenge.create({
+      buddyPairId: buddyPair._id,
+      participants: buddyPair.members,
+      weeklyWorkoutGoal: DEFAULT_WEEKLY_GOAL,
+      stake: DEFAULT_WEEKLY_STAKE,
+      startDate,
+      endDate,
+      status: 'active',
+      dailyStreaks: buildEmptyDailyStreaks(buddyPair.members),
+      streakStatus: buildEmptyStreakStatus(buddyPair.members),
+      combined_streak: false,
+      proofs: [],
+    });
+  }
+
+  return challenge;
+}
+
+async function resetWeeklyGoalIfExpired(challenge, now = new Date()) {
+  let updated = false;
+
+  if (!(challenge.endDate instanceof Date) || Number.isNaN(challenge.endDate.getTime())) {
+    const startDate = buildWeeklyWindowStart(now);
+    challenge.startDate = startDate;
+    challenge.endDate = buildWeeklyWindowEnd(startDate);
+    challenge.dailyStreaks = buildEmptyDailyStreaks(challenge.participants);
+    challenge.streakStatus = buildEmptyStreakStatus(challenge.participants);
+    challenge.proofs = [];
+    challenge.status = 'active';
+    challenge.combined_streak = false;
+    await challenge.save();
+    return challenge;
+  }
+
+  while (now > challenge.endDate) {
+    const bothCompletedPreviousWeek =
+      Array.isArray(challenge.streakStatus)
+      && challenge.streakStatus.length === challenge.participants.length
+      && challenge.streakStatus.every((entry) => entry.streak === true);
+
+    // Keep combined streak true only if each completed the previous week.
+    challenge.combined_streak = bothCompletedPreviousWeek;
+
+    const nextStartDate = buildWeeklyWindowStart(challenge.endDate);
+    challenge.startDate = nextStartDate;
+    challenge.endDate = buildWeeklyWindowEnd(nextStartDate);
+    challenge.dailyStreaks = buildEmptyDailyStreaks(challenge.participants);
+    challenge.streakStatus = buildEmptyStreakStatus(challenge.participants);
+    challenge.proofs = [];
+    challenge.status = 'active';
+
+    updated = true;
+  }
+
+  if (updated) {
+    await challenge.save();
+  }
+
+  return challenge;
 }
 
 export async function getUsers(req, res) {
@@ -149,6 +271,8 @@ export async function buddyUp(req, res) {
         await existingPair.save();
       }
 
+      await ensureWeeklyGoalForPair(existingPair);
+
       await BuddyWorkout.findOneAndUpdate(
         { buddyPairId: existingPair._id },
         {
@@ -179,6 +303,8 @@ export async function buddyUp(req, res) {
       workouts: [],
       weeklyHistory: [],
     });
+
+    await ensureWeeklyGoalForPair(buddyPair);
 
     return res.status(201).json(buddyPair);
   } catch (error) {
@@ -310,76 +436,88 @@ export async function createWeeklyBet(req, res) {
   try {
     const { id } = req.params;
     const { buddyId, weeklyWorkoutGoal, stake, startDate, status } = req.body;
-    
-    if (!mongoose.isValidObjectId(id) || !mongoose.isValidObjectId(buddyId)) {
-      return res.status(400).json({ message: 'Invalid user id or buddy id' });
+
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ message: 'Invalid user id' });
     }
 
-    if (String(id) === String(buddyId)) {
-      return res.status(400).json({ message: 'User and buddy cannot be the same' });
-    }
-
-    const [user, buddyUser] = await Promise.all([
-      Users.findById(id).select('_id'),
-      Users.findById(buddyId).select('_id'),
-    ]);
-    
-    if (!user || !buddyUser) {
-      return res.status(404).json({ message: 'User or buddy not found' });
+    const user = await Users.findById(id).select('_id');
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
     }
 
     const buddyPair = await BuddyPair.findOne({
-      members: { $all: [user._id, buddyUser._id], $size: 2 },
+      members: user._id,
       status: 'active',
-    }).select('_id');
+    }).select('_id members');
 
     if (!buddyPair) {
-      return res.status(400).json({ message: 'Users are not an active buddy pair' });
+      return res.status(400).json({ message: 'User is not in an active buddy pair' });
     }
 
-    const parsedGoal = Number(weeklyWorkoutGoal);
-    if (!Number.isInteger(parsedGoal) || parsedGoal < 1) {
-      return res.status(400).json({ message: 'weeklyWorkoutGoal must be a positive integer' });
+    if (buddyId && !buddyPair.members.some((memberId) => String(memberId) === String(buddyId))) {
+      return res.status(400).json({ message: 'Provided buddyId is not in the active buddy pair' });
     }
 
-    if (typeof stake !== 'string') {
-      return res.status(400).json({ message: 'Stake must be a string' });
+    let parsedGoal = null;
+    if (weeklyWorkoutGoal !== undefined) {
+      parsedGoal = Number(weeklyWorkoutGoal);
+      if (!Number.isInteger(parsedGoal) || parsedGoal < 1) {
+        return res.status(400).json({ message: 'weeklyWorkoutGoal must be a positive integer' });
+      }
     }
 
-    const normalizedStake = stake.trim();
+    let normalizedStake = null;
+    if (stake !== undefined) {
+      if (typeof stake !== 'string') {
+        return res.status(400).json({ message: 'Stake must be a string' });
+      }
 
-    if (!normalizedStake) {
-      return res.status(400).json({ message: 'Stake cannot be empty' });
+      normalizedStake = stake.trim();
+      if (!normalizedStake) {
+        return res.status(400).json({ message: 'Stake cannot be empty' });
+      }
     }
 
-    const isAllowedStake = ALLOWED_STAKES.includes(normalizedStake);
+    let challenge = await ensureWeeklyGoalForPair(buddyPair);
+    challenge = await resetWeeklyGoalIfExpired(challenge);
 
-    const normalizedStartDate = startDate ? new Date(startDate) : new Date();
-    if (Number.isNaN(normalizedStartDate.getTime())) {
-      return res.status(400).json({ message: 'Invalid startDate' });
+    if (parsedGoal !== null) {
+      challenge.weeklyWorkoutGoal = parsedGoal;
     }
 
-    const normalizedEndDate = new Date(normalizedStartDate);
-    normalizedEndDate.setDate(normalizedEndDate.getDate() + 7);
+    if (normalizedStake !== null) {
+      challenge.stake = normalizedStake;
+    }
 
-    const challenge = await Challenge.create({
-      participants: [user._id, buddyUser._id],
-      weeklyWorkoutGoal: parsedGoal,
-      stake: normalizedStake,
-      startDate: normalizedStartDate,
-      endDate: normalizedEndDate,
-      status: status || 'active',
-    });
+    if (startDate) {
+      const normalizedStartDate = new Date(startDate);
+      if (Number.isNaN(normalizedStartDate.getTime())) {
+        return res.status(400).json({ message: 'Invalid startDate' });
+      }
 
-    return res.status(201).json({
+      const start = buildWeeklyWindowStart(normalizedStartDate);
+      challenge.startDate = start;
+      challenge.endDate = buildWeeklyWindowEnd(start);
+    }
+
+    if (status) {
+      challenge.status = status;
+    }
+
+    await challenge.save();
+
+    const isAllowedStake = ALLOWED_STAKES.includes(challenge.stake);
+
+    return res.status(200).json({
       challenge,
       allowedStake: isAllowedStake,
       message: isAllowedStake
-        ? 'Weekly bet created'
-        : 'Weekly bet created with a custom stake',
+        ? 'Weekly goal updated'
+        : 'Weekly goal updated with a custom stake',
     });
   } catch (error) {
-    return res.status(500).json({ message: 'Failed to create weekly bet' });
+    return res.status(500).json({ message: 'Failed to update weekly goal' });
   }
 }
 
@@ -459,203 +597,6 @@ export async function createBuddyChallenge(req, res) {
     return res.status(201).json(challenge);
   } catch (error) {
     return res.status(500).json({ message: 'Failed to create challenge' });
-  }
-}
-
-export async function submitChallengeProof(req, res) {
-  try {
-    const { id, challengeId } = req.params;
-
-    if (!mongoose.isValidObjectId(id) || !mongoose.isValidObjectId(challengeId)) {
-      return res.status(400).json({ message: 'Invalid user id or challenge id' });
-    }
-
-    if (!req.file) {
-      return res.status(400).json({ message: 'Proof image file is required' });
-    }
-
-    const challenge = await BuddyChallenge.findById(challengeId);
-    if (!challenge) {
-      return res.status(404).json({ message: 'Challenge not found' });
-    }
-
-    if (String(challenge.target) !== String(id)) {
-      return res.status(403).json({ message: 'Only the target buddy can submit proof' });
-    }
-
-    if (challenge.status !== 'pending') {
-      return res.status(400).json({ message: 'Challenge is not accepting proof submissions' });
-    }
-
-    if (challenge.deadline && new Date() > challenge.deadline) {
-      return res.status(400).json({ message: 'Challenge deadline has passed' });
-    }
-
-    const uploadResult = await uploadProofToGridFS({
-      buffer: req.file.buffer,
-      filename: req.file.originalname,
-      contentType: req.file.mimetype,
-      metadata: {
-        challengeId,
-        targetId: id,
-      },
-    });
-
-    if (challenge.proof?.fileId) {
-      await deleteProofFromGridFS(challenge.proof.fileId).catch(() => null);
-    }
-
-    challenge.proof = {
-      fileId: uploadResult.fileId,
-      filename: uploadResult.filename,
-      contentType: uploadResult.contentType,
-      size: uploadResult.size,
-      bucket: uploadResult.bucket,
-      submittedAt: new Date(),
-      submittedBy: id,
-      verifiedAt: null,
-      verifiedBy: null,
-      verificationNote: null,
-    };
-    challenge.status = 'proof_submitted';
-
-    await challenge.save();
-
-    return res.status(200).json({
-      message: 'Proof uploaded successfully',
-      challenge,
-    });
-  } catch (error) {
-    console.error('submitChallengeProof error:', error);
-    return res.status(500).json({ message: 'Failed to submit challenge proof' });
-  }
-}
-
-export async function getChallengeProof(req, res) {
-  try {
-    const { id, challengeId } = req.params;
-
-    if (!mongoose.isValidObjectId(id) || !mongoose.isValidObjectId(challengeId)) {
-      return res.status(400).json({ message: 'Invalid user id or challenge id' });
-    }
-
-    const challenge = await BuddyChallenge.findById(challengeId);
-    if (!challenge) {
-      return res.status(404).json({ message: 'Challenge not found' });
-    }
-
-    const isParticipant =
-      String(challenge.challenger) === String(id) || String(challenge.target) === String(id);
-
-    if (!isParticipant) {
-      return res.status(403).json({ message: 'Only challenge participants can view proof' });
-    }
-
-    if (!challenge.proof?.fileId) {
-      return res.status(404).json({ message: 'Proof not found' });
-    }
-
-    res.setHeader('Content-Type', challenge.proof.contentType || 'application/octet-stream');
-    res.setHeader(
-      'Content-Disposition',
-      `inline; filename="${challenge.proof.filename || 'proof-image'}"`
-    );
-
-    const downloadStream = getProofDownloadStream(challenge.proof.fileId);
-    downloadStream.on('error', () => {
-      if (!res.headersSent) {
-        res.status(404).json({ message: 'Proof file not found' });
-      } else {
-        res.end();
-      }
-    });
-
-    downloadStream.pipe(res);
-  } catch (error) {
-    console.error('getChallengeProof error:', error);
-    return res.status(500).json({ message: 'Failed to fetch challenge proof' });
-  }
-}
-
-export async function resolveBuddyChallenge(req, res) {
-  try {
-    const { id, challengeId } = req.params;
-    const { accepted, note } = req.body;
-
-    if (!mongoose.isValidObjectId(id) || !mongoose.isValidObjectId(challengeId)) {
-      return res.status(400).json({ message: 'Invalid user id or challenge id' });
-    }
-
-    if (typeof accepted !== 'boolean') {
-      return res.status(400).json({ message: 'accepted must be true or false' });
-    }
-
-    const challenge = await BuddyChallenge.findById(challengeId);
-    if (!challenge) {
-      return res.status(404).json({ message: 'Challenge not found' });
-    }
-
-    if (challenge.status !== 'proof_submitted') {
-      return res.status(400).json({ message: 'Challenge proof has not been submitted for verification' });
-    }
-
-    if (String(challenge.challenger) !== String(id)) {
-      return res.status(403).json({ message: 'Only the challenger can verify this challenge proof' });
-    }
-
-    const buddyPair = await BuddyPair.findById(challenge.buddyPairId);
-    if (!buddyPair) {
-      return res.status(404).json({ message: 'Buddy pair not found' });
-    }
-
-    if (!buddyPair.memberScores || buddyPair.memberScores.length === 0) {
-      buddyPair.memberScores = buildMemberScores(buddyPair.members);
-    }
-
-    const targetScore = buddyPair.memberScores.find(
-      (entry) => String(entry.userId) === String(challenge.target)
-    );
-
-    if (!targetScore) {
-      buddyPair.memberScores.push({
-        userId: challenge.target,
-        points: 0,
-        penalties: 0,
-      });
-    }
-
-    const finalTargetScore = buddyPair.memberScores.find(
-      (entry) => String(entry.userId) === String(challenge.target)
-    );
-
-    challenge.proof.verifiedAt = new Date();
-    challenge.proof.verifiedBy = id;
-    challenge.proof.verificationNote = typeof note === 'string' ? note.trim() : null;
-
-    if (accepted) {
-      finalTargetScore.points += challenge.points;
-      challenge.status = 'accepted';
-      await Promise.all([buddyPair.save(), challenge.save()]);
-
-      return res.status(200).json({
-        message: 'Challenge accepted and points awarded',
-        challenge,
-        memberScores: buddyPair.memberScores,
-      });
-    }
-
-    finalTargetScore.penalties += 1;
-    challenge.status = 'rejected';
-    await Promise.all([buddyPair.save(), challenge.save()]);
-
-    return res.status(200).json({
-      message: 'Challenge rejected and penalty issued',
-      challenge,
-      memberScores: buddyPair.memberScores,
-    });
-  } catch (error) {
-    console.error('resolveBuddyChallenge error:', error);
-    return res.status(500).json({ message: 'Failed to resolve challenge' });
   }
 }
 
@@ -791,22 +732,12 @@ export async function getCurrentStakes(req, res) {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    const now = new Date();
-
-    let challenge = await Challenge.findOne({
-      participants: user._id,
+    const buddyPair = await BuddyPair.findOne({
+      members: user._id,
       status: 'active',
-      startDate: { $lte: now },
-      endDate: { $gte: now },
-    }).sort({ startDate: -1 });
+    }).select('_id memberScores members');
 
-    if (!challenge) {
-      challenge = await Challenge.findOne({
-        participants: user._id,
-      }).sort({ startDate: -1 });
-    }
-
-    if (!challenge) {
+    if (!buddyPair) {
       return res.status(200).json({
         userId: id,
         hasCurrentStake: false,
@@ -814,10 +745,8 @@ export async function getCurrentStakes(req, res) {
       });
     }
 
-    const buddyPair = await BuddyPair.findOne({
-      members: user._id,
-      status: 'active',
-    }).select('memberScores');
+    let challenge = await ensureWeeklyGoalForPair(buddyPair);
+    challenge = await resetWeeklyGoalIfExpired(challenge);
 
     const userScore = buddyPair?.memberScores?.find(
       (entry) => String(entry.userId) === String(user._id)
@@ -844,6 +773,278 @@ export async function getCurrentStakes(req, res) {
     return res.status(500).json({ message: 'Failed to fetch current stakes' });
   }
 }
+
+// Helper function to calculate streak completion
+async function updateChallengeStreaks(challenge) {
+  try {
+    const targetDays = Math.max(1, Number(challenge.weeklyWorkoutGoal) || 1);
+
+    // Check each participant's streak
+    for (const participant of challenge.participants) {
+      const dailyStreak = challenge.dailyStreaks.find(
+        (ds) => String(ds.userId) === String(participant)
+      );
+
+      if (dailyStreak) {
+        // If weekly target days are met, mark streak as true
+        const uniqueDays = new Set(dailyStreak.uploadedDays);
+        const streakStatus = challenge.streakStatus.find(
+          (ss) => String(ss.userId) === String(participant)
+        );
+
+        if (streakStatus) {
+          streakStatus.streak = uniqueDays.size >= targetDays;
+        }
+      }
+    }
+
+    // Keep combined streak running during the week; flip true once both hit goal.
+    const allStreaksTrue = challenge.streakStatus.every((ss) => ss.streak === true);
+    if (allStreaksTrue && challenge.streakStatus.length === 2) {
+      challenge.combined_streak = true;
+    }
+
+    await challenge.save();
+    return challenge;
+  } catch (error) {
+    console.error('updateChallengeStreaks error:', error);
+    throw error;
+  }
+}
+
+// Submit weekly goal proof (image upload)
+export async function submitWeeklyBetProof(req, res) {
+  try {
+    const { id, challengeId } = req.params;
+
+    if (!mongoose.isValidObjectId(id) || !mongoose.isValidObjectId(challengeId)) {
+      return res.status(400).json({ message: 'Invalid user id or challenge id' });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({ message: 'Proof image file is required' });
+    }
+
+    const user = await Users.findById(id).select('_id');
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    let challenge = await Challenge.findById(challengeId);
+    if (!challenge) {
+      return res.status(404).json({ message: 'Weekly goal not found' });
+    }
+
+    challenge = await resetWeeklyGoalIfExpired(challenge);
+
+    // Check if user is a participant
+    const isParticipant = challenge.participants.some((p) => String(p) === String(id));
+    if (!isParticipant) {
+      return res.status(403).json({ message: 'User is not a participant in this challenge' });
+    }
+
+    // Check if challenge is still active
+    const now = new Date();
+    if (now > challenge.endDate) {
+      return res.status(400).json({ message: 'Challenge deadline has passed' });
+    }
+
+    // Get today's date in YYYY-MM-DD format
+    const today = new Date(now);
+    today.setHours(0, 0, 0, 0);
+    const todayString = today.toISOString().split('T')[0];
+
+    // Upload file to GridFS
+    const uploadResult = await uploadProofToGridFS({
+      buffer: req.file.buffer,
+      filename: req.file.originalname,
+      contentType: req.file.mimetype,
+      metadata: {
+        challengeId,
+        userId: id,
+        uploadedDate: now,
+      },
+    });
+
+    // Add proof to challenge
+    challenge.proofs.push({
+      userId: id,
+      uploadedDate: now,
+      uploadedDay: todayString,
+      fileId: uploadResult.fileId,
+      filename: uploadResult.filename,
+      contentType: uploadResult.contentType,
+      size: uploadResult.size,
+      bucket: uploadResult.bucket,
+    });
+
+    // Update daily streak for user
+    const dailyStreak = challenge.dailyStreaks.find((ds) => String(ds.userId) === String(id));
+    if (dailyStreak) {
+      // Check if today's date is already in the list
+      if (!dailyStreak.uploadedDays.includes(todayString)) {
+        dailyStreak.uploadedDays.push(todayString);
+      }
+    }
+
+    // Update streak status
+    await updateChallengeStreaks(challenge);
+
+    const weeklyGoal = Math.max(1, Number(challenge.weeklyWorkoutGoal) || 1);
+    const cappedDailyStreaks = challenge.dailyStreaks.map((entry) => {
+      const uniqueDays = [...new Set(entry.uploadedDays || [])];
+      const cappedCount = Math.min(uniqueDays.length, weeklyGoal);
+
+      return {
+        userId: entry.userId,
+        uploadedDays: uniqueDays.slice(0, weeklyGoal),
+        daysCompleted: cappedCount,
+        goalDays: weeklyGoal,
+      };
+    });
+
+    return res.status(200).json({
+      message: 'Weekly goal proof uploaded successfully',
+      challenge: {
+        _id: challenge._id,
+        dailyStreaks: cappedDailyStreaks,
+        streakStatus: challenge.streakStatus,
+        combined_streak: challenge.combined_streak,
+        proofCount: challenge.proofs.length,
+      },
+    });
+  } catch (error) {
+    console.error('submitWeeklyBetProof error:', error);
+    return res.status(500).json({ message: 'Failed to submit weekly goal proof' });
+  }
+}
+
+export async function getWeeklyBetProof(req, res) {
+  try {
+    const { id, challengeId, proofId } = req.params;
+
+    if (!mongoose.isValidObjectId(id) || !mongoose.isValidObjectId(challengeId)) {
+      return res.status(400).json({ message: 'Invalid user id or challenge id' });
+    }
+
+    if (!mongoose.isValidObjectId(proofId)) {
+      return res.status(400).json({ message: 'Invalid proof id' });
+    }
+
+    const user = await Users.findById(id).select('_id');
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    let challenge = await Challenge.findById(challengeId);
+    if (!challenge) {
+      return res.status(404).json({ message: 'Weekly goal not found' });
+    }
+
+    challenge = await resetWeeklyGoalIfExpired(challenge);
+
+    const isParticipant = challenge.participants.some((participantId) => String(participantId) === String(id));
+    if (!isParticipant) {
+      return res.status(403).json({ message: 'User is not a participant in this challenge' });
+    }
+
+    const proof = challenge.proofs.find((entry) => String(entry._id) === String(proofId));
+    if (!proof || !proof.fileId) {
+      return res.status(404).json({ message: 'Proof not found' });
+    }
+
+    res.setHeader('Content-Type', proof.contentType || 'application/octet-stream');
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename="${proof.filename || 'weekly-goal-proof'}"`
+    );
+
+    const downloadStream = getProofDownloadStream(proof.fileId);
+    downloadStream.on('error', () => {
+      if (!res.headersSent) {
+        res.status(404).json({ message: 'Proof file not found' });
+      } else {
+        res.end();
+      }
+    });
+
+    return downloadStream.pipe(res);
+  } catch (error) {
+    console.error('getWeeklyBetProof error:', error);
+    return res.status(500).json({ message: 'Failed to fetch weekly goal proof' });
+  }
+}
+
+// Get weekly challenge details with streak info
+export async function getWeeklyChallengeDetails(req, res) {
+  try {
+    const { id, challengeId } = req.params;
+
+    if (!mongoose.isValidObjectId(id) || !mongoose.isValidObjectId(challengeId)) {
+      return res.status(400).json({ message: 'Invalid user id or challenge id' });
+    }
+
+    const user = await Users.findById(id).select('_id');
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    let challenge = await Challenge.findById(challengeId).populate('participants', '_id');
+    if (!challenge) {
+      return res.status(404).json({ message: 'Weekly goal not found' });
+    }
+
+    challenge = await resetWeeklyGoalIfExpired(challenge);
+
+    const isParticipant = challenge.participants.some((p) => String(p?._id || p) === String(id));
+    if (!isParticipant) {
+      return res.status(403).json({ message: 'User is not a participant in this challenge' });
+    }
+
+    // Get current user's streak info
+    const userDailyStreak = challenge.dailyStreaks.find((ds) => String(ds.userId) === String(id));
+    const userStreakStatus = challenge.streakStatus.find((ss) => String(ss.userId) === String(id));
+    const userProofs = challenge.proofs.filter((p) => String(p.userId) === String(id));
+    const weeklyGoal = Math.max(1, Number(challenge.weeklyWorkoutGoal) || 1);
+    const userUniqueDays = [...new Set(userDailyStreak?.uploadedDays || [])];
+    const cappedUserDays = userUniqueDays.slice(0, weeklyGoal);
+    const participantProgress = challenge.dailyStreaks.map((entry) => {
+      const uniqueDays = [...new Set(entry.uploadedDays || [])];
+      const daysCompleted = Math.min(uniqueDays.length, weeklyGoal);
+
+      return {
+        userId: entry.userId,
+        daysCompleted,
+        goalDays: weeklyGoal,
+      };
+    });
+
+    return res.status(200).json({
+      challenge: {
+        _id: challenge._id,
+        weeklyWorkoutGoal: challenge.weeklyWorkoutGoal,
+        stake: challenge.stake,
+        status: challenge.status,
+        startDate: challenge.startDate,
+        endDate: challenge.endDate,
+        combined_streak: challenge.combined_streak,
+      },
+      userStreak: {
+        uploadedDays: cappedUserDays,
+        streak: userStreakStatus?.streak || false,
+        uploadCount: userProofs.length,
+        daysCompleted: Math.min(userUniqueDays.length, weeklyGoal),
+        goalDays: weeklyGoal,
+      },
+      allStreakStatus: challenge.streakStatus,
+      participantProgress,
+    });
+  } catch (error) {
+    console.error('getWeeklyChallengeDetails error:', error);
+    return res.status(500).json({ message: 'Failed to fetch weekly challenge details' });
+  }
+}
+
 export async function CalorieLogger(req, res)
 {
   try {

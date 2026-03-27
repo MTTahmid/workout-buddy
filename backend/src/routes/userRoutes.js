@@ -11,9 +11,9 @@ import {
   getAllowedStakes,
   createWeeklyBet,
   createBuddyChallenge,
-  getChallengeProof,
-  submitChallengeProof,
-  resolveBuddyChallenge,
+  submitWeeklyBetProof,
+  getWeeklyBetProof,
+  getWeeklyChallengeDetails,
   CalorieLogger,
   GetCalorieHistory,
   WorkoutModelGetter,
@@ -46,11 +46,11 @@ router.get('/:id/weekly-workout-routine', getWeeklyWorkoutRoutine);
 router.get('/:id/history', getUserHistory);
 router.get('/:id/challenge-photos', getChallengePhotos);
 router.get('/:id/current-stakes', getCurrentStakes);
-router.post('/:id/weekly-bets', createWeeklyBet);
+router.post('/:id/weekly-bets', createWeeklyBet); //just added
 router.post('/:id/challenges', createBuddyChallenge);
-router.get('/:id/challenges/:challengeId/proof', getChallengeProof);
-router.post('/:id/challenges/:challengeId/proof', proofUpload.single('proof'), submitChallengeProof);
-router.put('/:id/challenges/:challengeId/resolve', resolveBuddyChallenge);
+router.post('/:id/weekly-bets/:challengeId/proof', proofUpload.single('proof'), submitWeeklyBetProof); //just added
+router.get('/:id/weekly-bets/:challengeId/proof/:proofId', getWeeklyBetProof); //just added
+router.get('/:id/weekly-bets/:challengeId/details', getWeeklyChallengeDetails); //just added
 router.post('/:id/calories/log', CalorieLogger);
 router.get('/:id/calories/history', GetCalorieHistory);
 router.get('/workout-models/get', WorkoutModelGetter);
