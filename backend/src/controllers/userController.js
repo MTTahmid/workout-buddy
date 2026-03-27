@@ -12,6 +12,7 @@ import UserFitness from '../models/UserFitness.js';
 import {
   getProofDownloadStream,
   uploadProofToGridFS,
+  deleteProofFromGridFS,
 } from '../config/gridfs.js';
 import mongoose from 'mongoose';
 
@@ -810,6 +811,195 @@ export async function createBuddyChallenge(req, res) {
   }
 }
 
+async function autoRejectExpiredChallenge(challenge, now = new Date()) {
+  if (!challenge) {
+    return challenge;
+  }
+
+  const isExpirableStatus = challenge.status === 'pending' || challenge.status === 'submitted';
+  const hasDeadline = challenge.deadline instanceof Date && !Number.isNaN(challenge.deadline.getTime());
+
+  if (isExpirableStatus && hasDeadline && now > challenge.deadline) {
+    challenge.status = 'rejected';
+    challenge.proof.verifiedAt = now;
+    challenge.proof.verifiedBy = null;
+    challenge.proof.verificationNote = 'Auto-rejected: deadline passed';
+    await challenge.save();
+  }
+
+  return challenge;
+}
+
+export async function submitBuddyChallengeProof(req, res) {
+  try {
+    const { id, challengeId } = req.params;
+
+    if (!mongoose.isValidObjectId(id) || !mongoose.isValidObjectId(challengeId)) {
+      return res.status(400).json({ message: 'Invalid user id or challenge id' });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({ message: 'Proof image is required' });
+    }
+
+    const user = await Users.findById(id).select('_id');
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    const challenge = await BuddyChallenge.findById(challengeId);
+    if (!challenge) {
+      return res.status(404).json({ message: 'Challenge not found' });
+    }
+
+    await autoRejectExpiredChallenge(challenge);
+
+    if (String(challenge.target) !== String(user._id)) {
+      return res.status(403).json({ message: 'Only challenged user can submit proof' });
+    }
+
+    if (challenge.status === 'rejected') {
+      return res.status(400).json({ message: 'Challenge has expired and is rejected' });
+    }
+
+    if (challenge.status === 'approved') {
+      return res.status(400).json({ message: 'Challenge already approved' });
+    }
+
+    const now = new Date();
+    if (now > challenge.deadline) {
+      await autoRejectExpiredChallenge(challenge, now);
+      return res.status(400).json({ message: 'Challenge deadline has passed' });
+    }
+
+    const previousFileId = challenge.proof?.fileId;
+    const uploadResult = await uploadProofToGridFS({
+      buffer: req.file.buffer,
+      filename: req.file.originalname,
+      contentType: req.file.mimetype,
+      metadata: {
+        challengeId,
+        userId: id,
+        uploadedDate: now,
+      },
+    });
+
+    challenge.proof = {
+      fileId: uploadResult.fileId,
+      filename: uploadResult.filename,
+      contentType: uploadResult.contentType,
+      size: uploadResult.size,
+      bucket: uploadResult.bucket,
+      submittedAt: now,
+      submittedBy: user._id,
+      verifiedAt: now,
+      verifiedBy: null,
+      verificationNote: 'Auto-approved on target submission',
+    };
+
+    const buddyPair = await BuddyPair.findById(challenge.buddyPairId)
+      .select('_id members memberScores status');
+
+    if (!buddyPair || buddyPair.status !== 'active') {
+      return res.status(400).json({ message: 'Active buddy pair not found for challenge' });
+    }
+
+    if (!Array.isArray(buddyPair.memberScores) || buddyPair.memberScores.length === 0) {
+      buddyPair.memberScores = buildMemberScores(buddyPair.members);
+    }
+
+    let targetScore = buddyPair.memberScores.find(
+      (entry) => String(entry.userId) === String(challenge.target)
+    );
+
+    if (!targetScore) {
+      buddyPair.memberScores.push({
+        userId: challenge.target,
+        points: 0,
+        penalties: 0,
+      });
+      targetScore = buddyPair.memberScores[buddyPair.memberScores.length - 1];
+    }
+
+    targetScore.points += challenge.points;
+    challenge.status = 'approved';
+
+    await Promise.all([challenge.save(), buddyPair.save()]);
+
+    if (previousFileId && previousFileId !== uploadResult.fileId) {
+      await deleteProofFromGridFS(previousFileId).catch(() => null);
+    }
+
+    return res.status(200).json({
+      message: 'Challenge proof submitted and auto-approved',
+      challengeId: challenge._id,
+      status: challenge.status,
+      pointsAwarded: challenge.points,
+      targetUserId: challenge.target,
+      targetPoints: targetScore.points,
+      submittedAt: challenge.proof.submittedAt,
+      proofUrl: `/user/${id}/challenges/${challenge._id}/proof`,
+    });
+  } catch (error) {
+    console.error('submitBuddyChallengeProof error:', error);
+    return res.status(500).json({ message: 'Failed to submit challenge proof' });
+  }
+}
+
+export async function getBuddyChallengeProof(req, res) {
+  try {
+    const { id, challengeId } = req.params;
+
+    if (!mongoose.isValidObjectId(id) || !mongoose.isValidObjectId(challengeId)) {
+      return res.status(400).json({ message: 'Invalid user id or challenge id' });
+    }
+
+    const user = await Users.findById(id).select('_id');
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    const challenge = await BuddyChallenge.findById(challengeId);
+    if (!challenge) {
+      return res.status(404).json({ message: 'Challenge not found' });
+    }
+
+    await autoRejectExpiredChallenge(challenge);
+
+    const isParticipant =
+      String(challenge.challenger) === String(user._id)
+      || String(challenge.target) === String(user._id);
+
+    if (!isParticipant) {
+      return res.status(403).json({ message: 'User is not part of this challenge' });
+    }
+
+    if (!challenge.proof?.fileId) {
+      return res.status(404).json({ message: 'No proof uploaded for this challenge' });
+    }
+
+    res.setHeader('Content-Type', challenge.proof.contentType || 'application/octet-stream');
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename="${challenge.proof.filename || 'challenge-proof'}"`
+    );
+
+    const downloadStream = getProofDownloadStream(challenge.proof.fileId);
+    downloadStream.on('error', () => {
+      if (!res.headersSent) {
+        res.status(404).json({ message: 'Proof file not found' });
+      } else {
+        res.end();
+      }
+    });
+
+    return downloadStream.pipe(res);
+  } catch (error) {
+    console.error('getBuddyChallengeProof error:', error);
+    return res.status(500).json({ message: 'Failed to fetch challenge proof' });
+  }
+}
+
 export async function getUserHistory(req, res) {
   try {
     const { id } = req.params;
@@ -889,6 +1079,23 @@ export async function getChallengePhotos(req, res) {
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
+
+    const now = new Date();
+    await BuddyChallenge.updateMany(
+      {
+        $or: [{ challenger: user._id }, { target: user._id }],
+        status: { $in: ['pending', 'submitted'] },
+        deadline: { $lt: now },
+      },
+      {
+        $set: {
+          status: 'rejected',
+          'proof.verifiedAt': now,
+          'proof.verifiedBy': null,
+          'proof.verificationNote': 'Auto-rejected: deadline passed',
+        },
+      }
+    );
 
     const challenges = await BuddyChallenge.find({
       $or: [{ challenger: user._id }, { target: user._id }],
