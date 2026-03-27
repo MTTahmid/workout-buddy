@@ -1,8 +1,10 @@
 import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
+import React from "react";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { useState } from "react";
 import SideDrawer from "./SideDrawer";
+import { USER_ID } from "@/constants/user";
 export default function Home() {
   const router = useRouter();
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -42,7 +44,7 @@ export default function Home() {
         </View>
 
         {/* LINK */}
-        <TouchableOpacity onPress={() => router.push("/partner")}>
+        <TouchableOpacity onPress={() => router.push(`/partner?id=${USER_ID}`)}>
           <Text style={styles.linkText}>
             Enter an invite code to pair
           </Text>

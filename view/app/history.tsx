@@ -1,8 +1,12 @@
+import React from "react";
 import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
-import { useRouter } from "expo-router";
+import { useRouter, useLocalSearchParams } from "expo-router";
+import { USER_ID } from "@/constants/user";
 
 export default function History() {
   const router = useRouter();
+  const params = useLocalSearchParams();
+  const userId = (params.id as string) || USER_ID;
 
   return (
     <View style={styles.container}>
