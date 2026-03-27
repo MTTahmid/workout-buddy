@@ -5,25 +5,91 @@ import {
   StyleSheet,
   TouchableOpacity,
   ScrollView,
+  Switch,
+  ActivityIndicator,
 } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { USER_ID } from "@/constants/user";
+import { API_BASE_URL } from "@/constants/api";
 
-type WagerEntry = {
-  week: string;
-  stake: string;
-  loser: "you" | "buddy";
-  settled: boolean;
+type MemberMoney = {
+  userId: string;
+  points: number;
+  moneyEarned: { taka: number; formatted: string };
 };
 
 export default function WagerBalance() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const userId = (params.id as string) || USER_ID;
-  const [wagers, setWagers] = useState<WagerEntry[]>([]);
 
-  const youOwe = wagers.filter((w) => w.loser === "you" && !w.settled);
-  const theyOwe = wagers.filter((w) => w.loser === "buddy" && !w.settled);
+  const [you, setYou] = useState<MemberMoney | null>(null);
+  const [buddy, setBuddy] = useState<MemberMoney | null>(null);
+  const [moneyEnabled, setMoneyEnabled] = useState(false);
+  const [buddyName, setBuddyName] = useState("Buddy");
+  const [loading, setLoading] = useState(true);
+
+  const fetchData = async () => {
+    try {
+      const [moneyRes, buddyRes] = await Promise.all([
+        fetch(`${API_BASE_URL}/user/${userId}/buddy/money`),
+        fetch(`${API_BASE_URL}/user/${userId}/buddy`),
+      ]);
+      if (moneyRes.ok) {
+        const data = await moneyRes.json();
+        const members: MemberMoney[] = data?.members || [];
+        const me = members.find((m) => String(m.userId) === String(userId));
+        const other = members.find((m) => String(m.userId) !== String(userId));
+        setYou(me || null);
+        setBuddy(other || null);
+        setMoneyEnabled(!!data?.monetaryEnabled);
+      }
+      if (buddyRes.ok) {
+        const bData = await buddyRes.json();
+        const name = bData?.buddy?.name?.trim()?.split(/\s+/)[0] || "Buddy";
+        setBuddyName(name);
+      }
+    } catch (e) {
+      console.error("Failed to fetch money:", e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchData();
+  }, [userId]);
+
+  const toggleMoney = async (val: boolean) => {
+    setMoneyEnabled(val);
+    try {
+      const res = await fetch(`${API_BASE_URL}/user/${userId}/buddy/money/toggle`, {
+        method: "PUT",
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setMoneyEnabled(!!data?.monetaryEnabled);
+      } else {
+        setMoneyEnabled(!val);
+      }
+    } catch (e) {
+      setMoneyEnabled(!val);
+    }
+  };
+
+  const yourPts = you?.points ?? 0;
+  const buddyPts = buddy?.points ?? 0;
+  const diff = yourPts - buddyPts;
+
+  const toTaka = (member: MemberMoney | null) =>
+    member?.moneyEarned?.taka?.toFixed(2) ?? "0.00";
+  const diffTaka = (Math.abs(diff) / 100).toFixed(2);
+
+  const getDiffEmoji = () => {
+    if (diff === 0) return "🤝";
+    if (diff > 0) return "😊";
+    return "😅";
+  };
 
   return (
     <View style={styles.container}>
@@ -37,63 +103,84 @@ export default function WagerBalance() {
         <View style={{ width: 28 }} />
       </View>
 
-      <ScrollView
-        contentContainerStyle={styles.content}
-        showsVerticalScrollIndicator={false}
-      >
-        {wagers.length === 0 ? (
-          <>
-            <View style={styles.emptyIconContainer}>
-              <View style={styles.emptyIconCircle}>
-                <Text style={styles.emptyIcon}>🍕</Text>
-              </View>
+      {loading ? (
+        <View style={styles.centered}>
+          <ActivityIndicator color="#39d2b4" size="large" />
+        </View>
+      ) : (
+        <ScrollView
+          contentContainerStyle={styles.content}
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Score Cards */}
+          <View style={styles.cardsRow}>
+            <View style={[styles.scoreCard, styles.youCard]}>
+              <Text style={styles.cardLabel}>You</Text>
+              <Text style={styles.cardPoints}>{yourPts}</Text>
+              <Text style={styles.cardTaka}>৳{toTaka(you)}</Text>
             </View>
+            <View style={[styles.scoreCard, styles.buddyCard]}>
+              <Text style={styles.cardLabel}>{buddyName}</Text>
+              <Text style={styles.cardPoints}>{buddyPts}</Text>
+              <Text style={styles.cardTakaBuddy}>৳{toTaka(buddy)}</Text>
+            </View>
+          </View>
 
-            <Text style={styles.emptyTitle}>You&apos;re all caught up!</Text>
-            <Text style={styles.emptySub}>
-              Nothing is owed you&apos;re in perfect sync.
+          {/* Difference with emoji */}
+          <View style={styles.diffCard}>
+            <Text style={styles.diffEmoji}>{getDiffEmoji()}</Text>
+            {diff === 0 ? (
+              <>
+                <Text style={styles.diffTitle}>You're tied — perfect sync!</Text>
+                <Text style={styles.diffSub}>No one owes anything</Text>
+              </>
+            ) : diff > 0 ? (
+              <>
+                <Text style={styles.diffTitle}>
+                  You're ahead by {diff} pts
+                </Text>
+                <Text style={styles.diffSub}>
+                  {buddyName} owes you ৳{diffTaka}
+                </Text>
+              </>
+            ) : (
+              <>
+                <Text style={styles.diffTitle}>
+                  {buddyName} is ahead by {Math.abs(diff)} pts
+                </Text>
+                <Text style={styles.diffSub}>
+                  You owe {buddyName} ৳{diffTaka}
+                </Text>
+              </>
+            )}
+          </View>
+
+          {/* Points → Taka info */}
+          <View style={styles.infoCard}>
+            <Text style={styles.infoTitle}>💰 Points → Taka</Text>
+            <Text style={styles.infoLine}>100 points = ৳1.00</Text>
+            <Text style={styles.infoSub}>
+              Earn points by completing mini bet challenges
             </Text>
-          </>
-        ) : (
-          <>
-            {youOwe.length > 0 && (
-              <View style={styles.section}>
-                <Text style={styles.sectionTitle}>You Owe</Text>
-                {youOwe.map((w, i) => (
-                  <View key={i} style={styles.wagerRow}>
-                    <View>
-                      <Text style={styles.wagerStake}>{w.stake}</Text>
-                      <Text style={styles.wagerWeek}>{w.week}</Text>
-                    </View>
-                    <View style={styles.oweBadge}>
-                      <Text style={styles.oweBadgeText}>unpaid</Text>
-                    </View>
-                  </View>
-                ))}
-              </View>
-            )}
+          </View>
 
-            {theyOwe.length > 0 && (
-              <View style={styles.section}>
-                <Text style={styles.sectionTitle}>They Owe You</Text>
-                {theyOwe.map((w, i) => (
-                  <View key={i} style={styles.wagerRow}>
-                    <View>
-                      <Text style={styles.wagerStake}>{w.stake}</Text>
-                      <Text style={styles.wagerWeek}>{w.week}</Text>
-                    </View>
-                    <View style={[styles.oweBadge, styles.oweBadgeGreen]}>
-                      <Text style={[styles.oweBadgeText, styles.oweBadgeTextGreen]}>
-                        unpaid
-                      </Text>
-                    </View>
-                  </View>
-                ))}
-              </View>
-            )}
-          </>
-        )}
-      </ScrollView>
+          {/* Monetary Mode Toggle */}
+          <View style={styles.toggleRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.toggleLabel}>Monetary mode</Text>
+              <Text style={styles.toggleSub}>
+                Track Taka balances between you and {buddyName}
+              </Text>
+            </View>
+            <Switch
+              value={moneyEnabled}
+              onValueChange={toggleMoney}
+              trackColor={{ false: "#333", true: "#39d2b4" }}
+              thumbColor="#fff"
+            />
+          </View>
+        </ScrollView>
+      )}
 
       <Text style={styles.footer}>
         Couples that sweat together stay together
@@ -124,84 +211,113 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: "600",
   },
-  content: {
-    flexGrow: 1,
+  centered: {
+    flex: 1,
     justifyContent: "center",
     alignItems: "center",
+  },
+  content: {
     paddingBottom: 40,
   },
-  emptyIconContainer: {
-    marginBottom: 30,
+  cardsRow: {
+    flexDirection: "row",
+    gap: 12,
+    marginBottom: 16,
   },
-  emptyIconCircle: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: "#2a1f00",
-    justifyContent: "center",
+  scoreCard: {
+    flex: 1,
+    borderRadius: 18,
+    padding: 20,
     alignItems: "center",
   },
-  emptyIcon: {
-    fontSize: 44,
+  youCard: {
+    backgroundColor: "rgba(57,210,180,0.12)",
   },
-  emptyTitle: {
+  buddyCard: {
+    backgroundColor: "rgba(255,180,50,0.12)",
+  },
+  cardLabel: {
+    color: "#aaa",
+    fontSize: 13,
+    marginBottom: 6,
+  },
+  cardPoints: {
     color: "#fff",
-    fontSize: 22,
-    fontWeight: "600",
-    marginBottom: 10,
-    textAlign: "center",
+    fontSize: 36,
+    fontWeight: "700",
   },
-  emptySub: {
-    color: "#888",
+  cardTaka: {
+    color: "#39d2b4",
     fontSize: 14,
-    textAlign: "center",
-    lineHeight: 20,
+    marginTop: 4,
   },
-  section: {
-    width: "100%",
-    marginBottom: 25,
+  cardTakaBuddy: {
+    color: "#ffb432",
+    fontSize: 14,
+    marginTop: 4,
   },
-  sectionTitle: {
+  diffCard: {
+    backgroundColor: "#1a1a1a",
+    borderRadius: 16,
+    padding: 20,
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  diffEmoji: {
+    fontSize: 32,
+    marginBottom: 10,
+  },
+  diffTitle: {
     color: "#fff",
     fontSize: 16,
     fontWeight: "600",
-    marginBottom: 12,
+    textAlign: "center",
   },
-  wagerRow: {
+  diffSub: {
+    color: "#39d2b4",
+    fontSize: 13,
+    marginTop: 4,
+    textAlign: "center",
+  },
+  infoCard: {
+    backgroundColor: "#1a1a1a",
+    borderRadius: 16,
+    padding: 18,
+    marginBottom: 16,
+  },
+  infoTitle: {
+    color: "#fff",
+    fontSize: 15,
+    fontWeight: "600",
+    marginBottom: 6,
+  },
+  infoLine: {
+    color: "#aaa",
+    fontSize: 13,
+  },
+  infoSub: {
+    color: "#666",
+    fontSize: 12,
+    marginTop: 4,
+  },
+  toggleRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     backgroundColor: "#1a1a1a",
     borderRadius: 16,
-    padding: 16,
-    marginBottom: 10,
+    padding: 18,
+    marginBottom: 20,
   },
-  wagerStake: {
+  toggleLabel: {
     color: "#fff",
     fontSize: 16,
     fontWeight: "600",
   },
-  wagerWeek: {
+  toggleSub: {
     color: "#888",
     fontSize: 12,
-    marginTop: 4,
-  },
-  oweBadge: {
-    backgroundColor: "rgba(255, 100, 100, 0.15)",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
-  },
-  oweBadgeText: {
-    color: "#ff6464",
-    fontSize: 12,
-    fontWeight: "600",
-  },
-  oweBadgeGreen: {
-    backgroundColor: "rgba(57, 210, 180, 0.15)",
-  },
-  oweBadgeTextGreen: {
-    color: "#39d2b4",
+    marginTop: 2,
   },
   footer: {
     color: "#555",
