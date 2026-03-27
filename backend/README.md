@@ -85,6 +85,7 @@ http://localhost:5000/
 | GET | `/user/users` | Get all users |
 | GET | `/user/:id/pairing-code` | Generate and return a new random 5-char pairing code |
 | PUT | `/user/:id/buddy/:pairingCode` | Pair user with buddy by pairing code (code is consumed/deleted) |
+| GET | `/user/:id/buddy` | Get active buddy profile/details for this user (sanitized) |
 
 #### `GET /user/:id/pairing-code`
 
@@ -93,6 +94,56 @@ Response:
 ```json
 {
 	"pairingCode": "A1B2C"
+}
+```
+
+#### `GET /user/:id/buddy`
+
+Returns the active buddy pair metadata plus the buddy's profile information that the app typically needs.
+
+Sensitive/internal fields are intentionally excluded (for example: `passwordHash`, `email`, `pairingCode`).
+
+Response shape:
+
+```json
+{
+	"userId": "<ObjectId>",
+	"buddyPair": {
+		"id": "<ObjectId>",
+		"status": "active",
+		"createdAt": "2026-03-27T12:00:00.000Z"
+	},
+	"buddy": {
+		"_id": "<ObjectId>",
+		"name": "Alex",
+		"profile": {
+			"age": 27,
+			"weight": 72,
+			"height": 175,
+			"fitnessLevel": "Intermediate",
+			"equipment": ["Dumbbells", "Yoga Mat"],
+			"dietaryPreferences": ["High Protein"]
+		},
+		"goals": {
+			"calorieGoal": 2500,
+			"stepGoal": 9000,
+			"targetWeight": 70
+		},
+		"performanceTier": {
+			"currentTier": "Silver",
+			"points": 320
+		},
+		"streak": {
+			"current": 4,
+			"lastWorkoutDate": "2026-03-26T00:00:00.000Z"
+		},
+		"habits": [],
+		"createdAt": "2026-01-10T00:00:00.000Z",
+		"score": {
+			"points": 20,
+			"penalties": 1
+		}
+	}
 }
 ```
 
