@@ -111,6 +111,56 @@ function buildWeeklyWindowEnd(startDate) {
   return end;
 }
 
+function padDayPart(value) {
+  return String(value).padStart(2, '0');
+}
+
+function toDayKey(date) {
+  const year = date.getFullYear();
+  const month = padDayPart(date.getMonth() + 1);
+  const day = padDayPart(date.getDate());
+  return `${year}-${month}-${day}`;
+}
+
+function buildWeeklyDayStatuses(weeklyGoal, uploadedDays = [], now = new Date()) {
+  const weekStart = buildWeeklyWindowStart(weeklyGoal.startDate || now);
+  const today = buildWeeklyWindowStart(now);
+  const uploadedDaySet = new Set(uploadedDays);
+
+  const days = Array.from({ length: 7 }, (_, offset) => {
+    const dayDate = new Date(weekStart);
+    dayDate.setDate(weekStart.getDate() + offset);
+
+    const dayKey = toDayKey(dayDate);
+    let status = 'not_yet_open';
+
+    if (uploadedDaySet.has(dayKey)) {
+      status = 'done';
+    } else if (dayDate.getTime() < today.getTime()) {
+      status = 'false';
+    } else if (dayDate.getTime() === today.getTime()) {
+      status = 'can_be_done';
+    }
+
+    return {
+      dayKey,
+      dayName: dayDate.toLocaleDateString('en-US', { weekday: 'long' }),
+      date: dayDate,
+      status,
+      isDone: status === 'done',
+    };
+  });
+
+  const summary = {
+    done: days.filter((entry) => entry.status === 'done').length,
+    canBeDone: days.filter((entry) => entry.status === 'can_be_done').length,
+    notYetOpen: days.filter((entry) => entry.status === 'not_yet_open').length,
+    false: days.filter((entry) => entry.status === 'false').length,
+  };
+
+  return { days, summary };
+}
+
 function buildEmptyDailyStreaks(participants) {
   return participants.map((participantId) => ({
     userId: participantId,
@@ -979,10 +1029,10 @@ export async function submitWeeklyGoalProof(req, res) {
       return res.status(400).json({ message: 'Weekly goal deadline has passed' });
     }
 
-    // Get today's date in YYYY-MM-DD format
+    // Get today's date in local YYYY-MM-DD format
     const today = new Date(now);
     today.setHours(0, 0, 0, 0);
-    const todayString = today.toISOString().split('T')[0];
+    const todayString = toDayKey(today);
 
     // Upload file to GridFS
     const uploadResult = await uploadProofToGridFS({
@@ -1024,12 +1074,14 @@ export async function submitWeeklyGoalProof(req, res) {
     const cappedDailyStreaks = weeklyGoal.dailyStreaks.map((entry) => {
       const uniqueDays = [...new Set(entry.uploadedDays || [])];
       const cappedCount = Math.min(uniqueDays.length, weeklyGoalTarget);
+      const dayStatus = buildWeeklyDayStatuses(weeklyGoal, uniqueDays, now);
 
       return {
         userId: entry.userId,
         uploadedDays: uniqueDays.slice(0, weeklyGoalTarget),
         daysCompleted: cappedCount,
         goalDays: weeklyGoalTarget,
+        dayStatus,
       };
     });
 
@@ -1138,14 +1190,18 @@ export async function getWeeklyGoalDetails(req, res) {
     const weeklyGoalTarget = Math.max(1, Number(weeklyGoal.weeklyWorkoutGoal) || 1);
     const userUniqueDays = [...new Set(userDailyStreak?.uploadedDays || [])];
     const cappedUserDays = userUniqueDays.slice(0, weeklyGoalTarget);
+    const now = new Date();
+    const userDayStatus = buildWeeklyDayStatuses(weeklyGoal, userUniqueDays, now);
     const participantProgress = weeklyGoal.dailyStreaks.map((entry) => {
       const uniqueDays = [...new Set(entry.uploadedDays || [])];
       const daysCompleted = Math.min(uniqueDays.length, weeklyGoalTarget);
+      const dayStatus = buildWeeklyDayStatuses(weeklyGoal, uniqueDays, now);
 
       return {
         userId: entry.userId,
         daysCompleted,
         goalDays: weeklyGoalTarget,
+        dayStatus,
       };
     });
 
@@ -1165,6 +1221,7 @@ export async function getWeeklyGoalDetails(req, res) {
         uploadCount: userProofs.length,
         daysCompleted: Math.min(userUniqueDays.length, weeklyGoalTarget),
         goalDays: weeklyGoalTarget,
+        dayStatus: userDayStatus,
       },
       allStreakStatus: weeklyGoal.streakStatus,
       participantProgress,

@@ -255,6 +255,18 @@ Rules:
 - Content type: `multipart/form-data`
 - File field name: `proof`
 
+Response includes updated streak data per participant:
+
+- `weeklyGoal.dailyStreaks[].dayStatus.days[]` with per-day entries for the 7-day window.
+- `weeklyGoal.dailyStreaks[].dayStatus.summary` with counts of `done`, `canBeDone`, `notYetOpen`, `false`.
+
+Per-day status values:
+
+- `done`: proof already submitted for that day.
+- `can_be_done`: the day is today and can still be submitted.
+- `not_yet_open`: future day in the current weekly window.
+- `false`: day has passed without submission.
+
 #### `GET /user/:id/weekly-goals/:weeklyGoalId/proof/:proofId`
 
 - Streams proof image bytes from GridFS.
@@ -264,6 +276,16 @@ Rules:
 #### `GET /user/:id/weekly-goals/:weeklyGoalId/details`
 
 - Returns weekly goal metadata, per-user progress, streak states, and participant progress.
+- Adds day-based progress for both current user and all participants:
+	- `userStreak.dayStatus.days[]`
+	- `userStreak.dayStatus.summary`
+	- `participantProgress[].dayStatus.days[]`
+	- `participantProgress[].dayStatus.summary`
+
+Notes:
+
+- Day keys are returned as local date strings in `YYYY-MM-DD` format.
+- `daysCompleted` still represents unique completed days capped by weekly target.
 
 ### Buddy Challenges
 
