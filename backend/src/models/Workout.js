@@ -7,10 +7,38 @@ const workoutSchema = new mongoose.Schema(
       required: true,
       trim: true,
     },
-    durationMinutes: {
+    met: {
       type: Number,
       required: true,
-      min: 1,
+      min: 0,
+    },
+    muscleGroup: {
+      type: String,
+      required: true,
+      enum: [
+        'chest',
+        'back',
+        'shoulders',
+        'biceps',
+        'triceps',
+        'forearms',
+        'core',
+        'glutes',
+        'quadriceps',
+        'hamstrings',
+        'calves',
+        'full body',
+      ],
+    },
+    exerciseType: {
+      type: String,
+      required: true,
+      enum: ['strength', 'cardio', 'flexibility', 'balance', 'plyometric', 'calisthenics'],
+    },
+    difficulty: {
+      type: String,
+      required: true,
+      enum: ['beginner', 'intermediate', 'advanced'],
     },
   },
   {

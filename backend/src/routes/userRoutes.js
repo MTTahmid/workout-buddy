@@ -15,6 +15,14 @@ import {
   resolveBuddyChallenge,
   CalorieLogger,
   GetCalorieHistory,
+  WorkoutModelGetter,
+  WorkoutModelCreator,
+  WorkoutModelDeleter,
+  WorkoutModelEditor,
+  WorkoutModelSessionStarter,
+  WorkoutModelSessionTracker,
+  WorkoutModelSessionUpdater,
+  WorkoutModelSessionEnder,
 } from '../controllers/userController.js';
 import proofUpload from '../middleware/proofUpload.js';
 
@@ -38,8 +46,17 @@ router.post('/:id/challenges', createBuddyChallenge);
 router.get('/:id/challenges/:challengeId/proof', getChallengeProof);
 router.post('/:id/challenges/:challengeId/proof', proofUpload.single('proof'), submitChallengeProof);
 router.put('/:id/challenges/:challengeId/resolve', resolveBuddyChallenge);
-router.post('/:id/calories', CalorieLogger);
-router.get('/:id/calories', GetCalorieHistory);
+router.post('/:id/calories/log', CalorieLogger);
+router.get('/:id/calories/history', GetCalorieHistory);
+router.get('/workout-models/get', WorkoutModelGetter);
+router.get('/:id/workout-models/get', WorkoutModelGetter);
+router.post('/:id/workout-models/create', WorkoutModelCreator);
+router.post('/:id/workout-models/delete', WorkoutModelDeleter);
+router.post('/:id/workout-models/edit', WorkoutModelEditor);
+router.post('/:id/active-workout-model-session/start', WorkoutModelSessionStarter);
+router.get('/:id/active-workout-model-session/tracker', WorkoutModelSessionTracker);
+router.post('/:id/active-workout-model-session/update', WorkoutModelSessionUpdater);
+router.delete('/:id/active-workout-model-session/end', WorkoutModelSessionEnder);
 /*
 bet has to connection to the points yet
 */
