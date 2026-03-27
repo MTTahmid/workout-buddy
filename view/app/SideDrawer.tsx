@@ -70,6 +70,15 @@ export default function SideDrawer({ visible, onClose }: Props) {
         <TouchableOpacity
           onPress={() => {
             onClose();
+            router.push(`/mini-bets?id=${USER_ID}`);
+          }}
+        >
+          <Text style={styles.drawerItem}>Mini Bets</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          onPress={() => {
+            onClose();
             router.push(`/partner?id=${USER_ID}`);
           }}
         >
