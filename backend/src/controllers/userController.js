@@ -175,6 +175,33 @@ function buildEmptyStreakStatus(participants) {
   }));
 }
 
+async function applyPersistentUserStreaks(weeklyGoal, weekEndDate) {
+  const participants = Array.isArray(weeklyGoal.participants) ? weeklyGoal.participants : [];
+
+  if (participants.length === 0) {
+    return;
+  }
+
+  const users = await Users.find({ _id: { $in: participants } }).select('_id streak');
+  const streakStatusByUserId = new Map(
+    (weeklyGoal.streakStatus || []).map((entry) => [String(entry.userId), entry.streak === true])
+  );
+
+  for (const user of users) {
+    const completedWeek = streakStatusByUserId.get(String(user._id)) === true;
+    const currentValue = Number.isInteger(user.streak?.current) ? user.streak.current : 0;
+    const nextValue = completedWeek ? currentValue + 1 : 0;
+
+    user.streak = {
+      ...(user.streak || {}),
+      current: nextValue,
+      lastWorkoutDate: completedWeek ? weekEndDate : user.streak?.lastWorkoutDate || null,
+    };
+
+    await user.save();
+  }
+}
+
 async function ensureWeeklyGoalForPair(buddyPair) {
   let weeklyGoal = await WeeklyGoal.findOne({ buddyPairId: buddyPair._id });
 
@@ -243,10 +270,13 @@ async function resetWeeklyGoalIfExpired(weeklyGoal, now = new Date()) {
   }
 
   while (now > weeklyGoal.endDate) {
+    const previousWeekEndDate = weeklyGoal.endDate;
     const bothCompletedPreviousWeek =
       Array.isArray(weeklyGoal.streakStatus)
       && weeklyGoal.streakStatus.length === weeklyGoal.participants.length
       && weeklyGoal.streakStatus.every((entry) => entry.streak === true);
+
+    await applyPersistentUserStreaks(weeklyGoal, previousWeekEndDate);
 
     // Keep combined streak true only if each completed the previous week.
     weeklyGoal.combined_streak = bothCompletedPreviousWeek;
@@ -835,7 +865,7 @@ export async function getUserHistory(req, res) {
 
     return res.status(200).json({
       userId: id,
-      streak: buddyPair.combinedStreak?.current ?? user.streak?.current ?? 0,
+      streak: user.streak?.current ?? buddyPair.combinedStreak?.current ?? 0,
       totalWorkouts,
       weeks,
     });
@@ -1166,7 +1196,7 @@ export async function getWeeklyGoalDetails(req, res) {
       return res.status(400).json({ message: 'Invalid user id or weekly goal id' });
     }
 
-    const user = await Users.findById(id).select('_id');
+    const user = await Users.findById(id).select('_id streak');
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
@@ -1218,6 +1248,7 @@ export async function getWeeklyGoalDetails(req, res) {
       userStreak: {
         uploadedDays: cappedUserDays,
         streak: userStreakStatus?.streak || false,
+        persistentCurrent: user.streak?.current || 0,
         uploadCount: userProofs.length,
         daysCompleted: Math.min(userUniqueDays.length, weeklyGoalTarget),
         goalDays: weeklyGoalTarget,

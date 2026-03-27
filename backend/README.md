@@ -179,6 +179,8 @@ Response shape:
 }
 ```
 
+`streak` is the persistent per-user streak. It carries across weekly goal resets and only breaks when the user misses a completed weekly target.
+
 #### `GET /user/:id/challenge-photos`
 
 Optional query params:
@@ -281,6 +283,7 @@ Per-day status values:
 	- `userStreak.dayStatus.summary`
 	- `participantProgress[].dayStatus.days[]`
 	- `participantProgress[].dayStatus.summary`
+- `userStreak.persistentCurrent` returns the stored long-running user streak value.
 
 Notes:
 
