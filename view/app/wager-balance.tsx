@@ -49,9 +49,9 @@ export default function WagerBalance() {
               </View>
             </View>
 
-            <Text style={styles.emptyTitle}>You're all caught up!</Text>
+            <Text style={styles.emptyTitle}>You&apos;re all caught up!</Text>
             <Text style={styles.emptySub}>
-              Nothing is owed you're in perfect sync.
+              Nothing is owed you&apos;re in perfect sync.
             </Text>
           </>
         ) : (

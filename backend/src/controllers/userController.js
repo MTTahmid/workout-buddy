@@ -919,6 +919,67 @@ export async function createBuddyChallenge(req, res) {
   }
 }
 
+export async function getBuddyChallenges(req, res) {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ message: 'Invalid user id' });
+    }
+
+    const user = await Users.findById(id).select('_id');
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    const now = new Date();
+    await BuddyChallenge.updateMany(
+      {
+        $or: [{ challenger: user._id }, { target: user._id }],
+        status: { $in: ['pending', 'submitted'] },
+        deadline: { $lt: now },
+      },
+      {
+        $set: {
+          status: 'rejected',
+          'proof.verifiedAt': now,
+          'proof.verifiedBy': null,
+          'proof.verificationNote': 'Auto-rejected: deadline passed',
+        },
+      }
+    );
+
+    const challenges = await BuddyChallenge.find({
+      $or: [{ challenger: user._id }, { target: user._id }],
+    })
+      .sort({ createdAt: -1 })
+      .select('challenger target workoutType points status deadline createdAt proof');
+
+    return res.status(200).json({
+      userId: id,
+      count: challenges.length,
+      challenges: challenges.map((challenge) => ({
+        challengeId: challenge._id,
+        workoutType: challenge.workoutType,
+        points: challenge.points,
+        status: challenge.status,
+        deadline: challenge.deadline,
+        createdAt: challenge.createdAt,
+        submittedAt: challenge.proof?.submittedAt || null,
+        hasProof: Boolean(challenge.proof?.fileId),
+        challenger: challenge.challenger,
+        target: challenge.target,
+        proofUrl: challenge.proof?.fileId
+          ? `/user/${id}/challenges/${challenge._id}/proof`
+          : null,
+      })),
+    });
+  } catch (error) {
+    console.error('getBuddyChallenges error:', error);
+    return res.status(500).json({ message: 'Failed to fetch challenges' });
+  }
+}
+
 async function autoRejectExpiredChallenge(challenge, now = new Date()) {
   if (!challenge) {
     return challenge;
