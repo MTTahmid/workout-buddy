@@ -9,6 +9,7 @@ import {
   getChallengePhotos,
   getCurrentStakes,
   getAllowedStakes,
+  addWeeklyGoalStake,
   updateWeeklyGoal,
   createBuddyChallenge,
   submitWeeklyGoalProof,
@@ -39,6 +40,8 @@ const router = express.Router();
  */
 router.get('/users', getUsers);
 router.get('/weekly-goals/allowed-stakes', getAllowedStakes);
+router.get('/:id/weekly-goals/allowed-stakes', getAllowedStakes); //just added
+router.post('/:id/weekly-goals/allowed-stakes', addWeeklyGoalStake); //just added
 router.get('/:id/pairing-code', fetchPairingCode);
 router.put('/:id/buddy/:pairingCode', buddyUp);
 router.get('/:id/buddy', getBuddyInfo);

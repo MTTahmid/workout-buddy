@@ -204,6 +204,8 @@ Response includes:
 | Method | Endpoint | Description |
 | ------ | -------- | ----------- |
 | GET | `/user/weekly-goals/allowed-stakes` | Get preset allowed stake labels |
+| GET | `/user/:id/weekly-goals/allowed-stakes` | Get personal allowed stakes for user's active pair |
+| POST | `/user/:id/weekly-goals/allowed-stakes` | Add a custom stake to active pair allowed stakes |
 | POST | `/user/:id/weekly-goals` | Update weekly goal settings for active buddy pair |
 | POST | `/user/:id/weekly-goals/:weeklyGoalId/proof` | Upload weekly goal proof image |
 | GET | `/user/:id/weekly-goals/:weeklyGoalId/proof/:proofId` | Stream a specific weekly goal proof image |
@@ -222,6 +224,30 @@ Request body:
 	"status": "active"
 }
 ```
+
+Rules:
+
+- If `stake` is provided, it must exist in the active pair's personal `allowedStakes` list.
+
+#### `GET /user/:id/weekly-goals/allowed-stakes`
+
+- Returns the active pair-specific stake list.
+- If user is not in an active pair, returns default preset stakes.
+
+#### `POST /user/:id/weekly-goals/allowed-stakes`
+
+Request body:
+
+```json
+{
+	"stake": "Movie Night"
+}
+```
+
+Rules:
+
+- Adds the stake to the active pair's personal `allowedStakes` list.
+- Duplicate stake labels (case-insensitive) are ignored.
 
 #### `POST /user/:id/weekly-goals/:weeklyGoalId/proof`
 

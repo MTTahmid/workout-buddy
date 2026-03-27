@@ -71,6 +71,34 @@ function buildMemberScores(memberIds) {
   }));
 }
 
+function buildDefaultAllowedStakes() {
+  return [...ALLOWED_STAKES];
+}
+
+function normalizeStakeLabel(value) {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function hasStakeLabel(stakes, label) {
+  const normalizedLabel = normalizeStakeLabel(label).toLowerCase();
+  return stakes.some((entry) => normalizeStakeLabel(entry).toLowerCase() === normalizedLabel);
+}
+
+async function ensurePairAllowedStakes(buddyPair) {
+  const hasValidAllowedStakes =
+    Array.isArray(buddyPair.allowedStakes)
+    && buddyPair.allowedStakes.some((entry) => normalizeStakeLabel(entry));
+
+  if (!hasValidAllowedStakes) {
+    buddyPair.allowedStakes = buildDefaultAllowedStakes();
+    await buddyPair.save();
+  }
+
+  return buddyPair.allowedStakes
+    .map((entry) => normalizeStakeLabel(entry))
+    .filter(Boolean);
+}
+
 function buildWeeklyWindowStart(date = new Date()) {
   const start = new Date(date);
   start.setHours(0, 0, 0, 0);
@@ -268,8 +296,10 @@ export async function buddyUp(req, res) {
     if (existingPair) {
       if (!existingPair.memberScores || existingPair.memberScores.length === 0) {
         existingPair.memberScores = buildMemberScores(existingPair.members);
-        await existingPair.save();
       }
+
+      await ensurePairAllowedStakes(existingPair);
+      await existingPair.save();
 
       await ensureWeeklyGoalForPair(existingPair);
 
@@ -289,6 +319,7 @@ export async function buddyUp(req, res) {
 
     const buddyPair = await BuddyPair.create({
       members: [user._id, buddyUser._id],
+      allowedStakes: buildDefaultAllowedStakes(),
       memberScores: buildMemberScores([user._id, buddyUser._id]),
       status: 'active',
       combinedStreak: {
@@ -429,7 +460,97 @@ export async function getWeeklyWorkoutRoutine(req, res) {
 }
 
 export async function getAllowedStakes(req, res) {
-  return res.status(200).json({ allowedStakes: ALLOWED_STAKES });
+  try {
+    const { id } = req.params;
+
+    if (!id) {
+      return res.status(200).json({ allowedStakes: ALLOWED_STAKES });
+    }
+
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ message: 'Invalid user id' });
+    }
+
+    const user = await Users.findById(id).select('_id');
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    const buddyPair = await BuddyPair.findOne({
+      members: user._id,
+      status: 'active',
+    }).select('_id allowedStakes');
+
+    if (!buddyPair) {
+      return res.status(200).json({
+        allowedStakes: ALLOWED_STAKES,
+        source: 'default',
+      });
+    }
+
+    const allowedStakes = await ensurePairAllowedStakes(buddyPair);
+
+    return res.status(200).json({
+      allowedStakes,
+      source: 'pair',
+      buddyPairId: buddyPair._id,
+    });
+  } catch (error) {
+    return res.status(500).json({ message: 'Failed to fetch allowed stakes' });
+  }
+}
+
+export async function addWeeklyGoalStake(req, res) {
+  try {
+    const { id } = req.params;
+    const { stake } = req.body;
+
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ message: 'Invalid user id' });
+    }
+
+    const normalizedStake = normalizeStakeLabel(stake);
+    if (!normalizedStake) {
+      return res.status(400).json({ message: 'Stake cannot be empty' });
+    }
+
+    const user = await Users.findById(id).select('_id');
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    const buddyPair = await BuddyPair.findOne({
+      members: user._id,
+      status: 'active',
+    }).select('_id members allowedStakes');
+
+    if (!buddyPair) {
+      return res.status(400).json({ message: 'User is not in an active buddy pair' });
+    }
+
+    const allowedStakes = await ensurePairAllowedStakes(buddyPair);
+
+    if (hasStakeLabel(allowedStakes, normalizedStake)) {
+      return res.status(200).json({
+        message: 'Stake already exists in allowed stakes',
+        added: false,
+        allowedStakes,
+        buddyPairId: buddyPair._id,
+      });
+    }
+
+    buddyPair.allowedStakes.push(normalizedStake);
+    await buddyPair.save();
+
+    return res.status(201).json({
+      message: 'Stake added to pair allowed stakes',
+      added: true,
+      allowedStakes: buddyPair.allowedStakes,
+      buddyPairId: buddyPair._id,
+    });
+  } catch (error) {
+    return res.status(500).json({ message: 'Failed to add weekly goal stake' });
+  }
 }
 
 export async function updateWeeklyGoal(req, res) {
@@ -449,7 +570,7 @@ export async function updateWeeklyGoal(req, res) {
     const buddyPair = await BuddyPair.findOne({
       members: user._id,
       status: 'active',
-    }).select('_id members');
+    }).select('_id members allowedStakes');
 
     if (!buddyPair) {
       return res.status(400).json({ message: 'User is not in an active buddy pair' });
@@ -481,12 +602,20 @@ export async function updateWeeklyGoal(req, res) {
 
     let weeklyGoal = await ensureWeeklyGoalForPair(buddyPair);
     weeklyGoal = await resetWeeklyGoalIfExpired(weeklyGoal);
+    const pairAllowedStakes = await ensurePairAllowedStakes(buddyPair);
 
     if (parsedGoal !== null) {
       weeklyGoal.weeklyWorkoutGoal = parsedGoal;
     }
 
     if (normalizedStake !== null) {
+      if (!hasStakeLabel(pairAllowedStakes, normalizedStake)) {
+        return res.status(400).json({
+          message: 'Stake is not in your pair allowed stakes. Add it first.',
+          allowedStakes: pairAllowedStakes,
+        });
+      }
+
       weeklyGoal.stake = normalizedStake;
     }
 
@@ -507,14 +636,15 @@ export async function updateWeeklyGoal(req, res) {
 
     await weeklyGoal.save();
 
-    const isAllowedStake = ALLOWED_STAKES.includes(weeklyGoal.stake);
+    const isAllowedStake = hasStakeLabel(pairAllowedStakes, weeklyGoal.stake);
 
     return res.status(200).json({
       weeklyGoal,
       allowedStake: isAllowedStake,
       message: isAllowedStake
         ? 'Weekly goal updated'
-        : 'Weekly goal updated with a custom stake',
+        : 'Weekly goal updated with a stake outside defaults',
+      allowedStakes: pairAllowedStakes,
     });
   } catch (error) {
     return res.status(500).json({ message: 'Failed to update weekly goal' });
