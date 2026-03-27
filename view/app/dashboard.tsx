@@ -6,6 +6,9 @@ import {
   Dimensions,
   ScrollView,
   TouchableOpacity,
+  Image,
+  NativeSyntheticEvent,
+  NativeScrollEvent,
 } from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import { USER_ID } from "@/constants/user";
@@ -21,15 +24,35 @@ export default function Dashboard() {
   const [buddyName, setBuddyName] = useState("Buddy");
   const [goalWorkouts, setGoalWorkouts] = useState(3);
   const [stake, setStake] = useState("1 Dinner");
-
-  const days = ["F", "S", "S", "M", "T", "W", "T"];
-  const userWorkouts = 0;
-  const partnerWorkouts = 0;
+  const [weeklyGoalId, setWeeklyGoalId] = useState<string | null>(null);
+  const [proofPhotos, setProofPhotos] = useState<any[]>([]);
+  const [activePhotoIndex, setActivePhotoIndex] = useState(0);
+  const slideWidth = width - 40;
+  const [buddyId, setBuddyId] = useState<string | null>(null);
+  const [userDays, setUserDays] = useState<any[]>([]);
+  const [buddyDays, setBuddyDays] = useState<any[]>([]);
+  const [userWorkouts, setUserWorkouts] = useState(0);
+  const [partnerWorkouts, setPartnerWorkouts] = useState(0);
+  const [daysLeft, setDaysLeft] = useState(7);
+  const [dateRange, setDateRange] = useState("");
 
   const getFirstName = (name?: string) => {
     const trimmed = name?.trim();
     if (!trimmed) return "";
     return trimmed.split(/\s+/)[0];
+  };
+
+  const getTimeAgo = (dateStr: string) => {
+    const now = new Date();
+    const then = new Date(dateStr);
+    const diffMs = now.getTime() - then.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    if (diffMins < 1) return "Just now";
+    if (diffMins < 60) return `${diffMins}m ago`;
+    const diffHrs = Math.floor(diffMins / 60);
+    if (diffHrs < 24) return `${diffHrs}h ago`;
+    const diffDays = Math.floor(diffHrs / 24);
+    return `${diffDays}d ago`;
   };
 
   useEffect(() => {
@@ -58,19 +81,30 @@ export default function Dashboard() {
 
         const currentUserName = getFirstName(currentUser?.name) || "x";
         const currentBuddyName = getFirstName(buddyData?.buddy?.name) || "Buddy";
+        const fetchedBuddyId = buddyData?.buddy?._id || null;
 
         setUserName(currentUserName);
         setBuddyName(currentBuddyName);
+        setBuddyId(fetchedBuddyId);
 
         if (goalsResponse.ok) {
           const goalsData = await goalsResponse.json();
           const savedGoal = goalsData?.weeklyGoal?.weeklyWorkoutGoal;
           const savedStake = goalsData?.weeklyGoal?.stake;
+          const goalId = goalsData?.weeklyGoal?._id;
+          const proofs = goalsData?.weeklyGoal?.proofs || [];
           if (Number.isInteger(savedGoal) && savedGoal >= 1) {
             setGoalWorkouts(savedGoal);
           }
           if (savedStake) {
             setStake(savedStake);
+          }
+          if (goalId) {
+            setWeeklyGoalId(goalId);
+            const sorted = [...proofs].sort(
+              (a: any, b: any) => new Date(b.uploadedDate).getTime() - new Date(a.uploadedDate).getTime()
+            );
+            setProofPhotos(sorted);
           }
         }
       } catch (error) {
@@ -80,6 +114,50 @@ export default function Dashboard() {
 
     fetchNames();
   }, [userId]);
+
+  useEffect(() => {
+    if (!weeklyGoalId) return;
+    const fetchDetails = async () => {
+      try {
+        const res = await fetch(
+          `http://localhost:5001/user/${userId}/weekly-goals/${weeklyGoalId}/details`
+        );
+        if (!res.ok) return;
+        const data = await res.json();
+
+        // User day statuses
+        const uDays = data?.userStreak?.dayStatus?.days || [];
+        setUserDays(uDays);
+        setUserWorkouts(data?.userStreak?.daysCompleted || 0);
+
+        // Buddy day statuses
+        if (buddyId && Array.isArray(data?.participantProgress)) {
+          const buddyProgress = data.participantProgress.find(
+            (p: any) => String(p.userId) !== String(userId)
+          );
+          if (buddyProgress) {
+            setBuddyDays(buddyProgress.dayStatus?.days || []);
+            setPartnerWorkouts(buddyProgress.daysCompleted || 0);
+          }
+        }
+
+        // Date range & days left
+        const wg = data?.weeklyGoal;
+        if (wg?.startDate && wg?.endDate) {
+          const start = new Date(wg.startDate);
+          const end = new Date(wg.endDate);
+          const fmt = (d: Date) => `${d.getMonth() + 1}/${d.getDate()}`;
+          setDateRange(`${fmt(start)} \u2013 ${fmt(end)}`);
+          const now = new Date();
+          const remaining = Math.max(0, Math.ceil((end.getTime() - now.getTime()) / 86400000));
+          setDaysLeft(remaining);
+        }
+      } catch (e) {
+        console.error("Failed to fetch weekly details:", e);
+      }
+    };
+    fetchDetails();
+  }, [weeklyGoalId, buddyId]);
 
   return (
     <View style={{ flex: 1 }}>
@@ -99,25 +177,71 @@ export default function Dashboard() {
           </View>
         </View>
 
-        {/* WIN THE WEEK EARLY CARD */}
-        <View style={styles.winCard}>
-          <View style={styles.dumbellContainer}>
-            <Text style={styles.dumbell}>🏋️</Text>
+        {/* PHOTO CAROUSEL / WIN CARD */}
+        {proofPhotos.length > 0 && weeklyGoalId ? (
+          <View style={styles.carouselCard}>
+            <ScrollView
+              horizontal
+              pagingEnabled
+              showsHorizontalScrollIndicator={false}
+              decelerationRate="fast"
+              snapToInterval={slideWidth}
+              snapToAlignment="start"
+              onScroll={(e: NativeSyntheticEvent<NativeScrollEvent>) => {
+                const index = Math.round(e.nativeEvent.contentOffset.x / slideWidth);
+                setActivePhotoIndex(index);
+              }}
+              scrollEventThrottle={16}
+            >
+              {proofPhotos.map((item) => (
+                <View key={item._id} style={styles.carouselSlide}>
+                  <Image
+                    source={{
+                      uri: `http://localhost:5001/user/${userId}/weekly-goals/${weeklyGoalId}/proof/${item._id}`,
+                    }}
+                    style={styles.proofImage}
+                    resizeMode="cover"
+                  />
+                  <Text style={styles.proofTimestamp}>
+                    {getTimeAgo(item.uploadedDate)}
+                  </Text>
+                </View>
+              ))}
+            </ScrollView>
+            {proofPhotos.length > 1 && (
+              <View style={styles.dotRow}>
+                {proofPhotos.map((_, i) => (
+                  <View
+                    key={i}
+                    style={[
+                      styles.dot,
+                      i === activePhotoIndex && styles.dotActive,
+                    ]}
+                  />
+                ))}
+              </View>
+            )}
           </View>
-          <TouchableOpacity style={styles.startButton}>
-            <Text style={styles.startButtonText}>START STRONG</Text>
-          </TouchableOpacity>
-          <Text style={styles.winTitle}>Win the week early</Text>
-          <Text style={styles.winSubtitle}>Set the tone before {buddyName} does</Text>
-        </View>
+        ) : (
+          <View style={styles.winCard}>
+            <View style={styles.dumbellContainer}>
+              <Text style={styles.dumbell}>🏋️</Text>
+            </View>
+            <TouchableOpacity style={styles.startButton}>
+              <Text style={styles.startButtonText}>START STRONG</Text>
+            </TouchableOpacity>
+            <Text style={styles.winTitle}>Win the week early</Text>
+            <Text style={styles.winSubtitle}>Set the tone before {buddyName} does</Text>
+          </View>
+        )}
 
         {/* THIS WEEK */}
         <View style={styles.weekCard}>
           <View style={styles.weekHeader}>
             <Text style={styles.sectionTitle}>This Week</Text>
-            <Text style={styles.daysLeft}>⏱️ 7 days left</Text>
+            <Text style={styles.daysLeft}>⏱️ {daysLeft} day{daysLeft !== 1 ? "s" : ""} left</Text>
           </View>
-          <Text style={styles.dateRange}>3/27 – 4/3</Text>
+          <Text style={styles.dateRange}>{dateRange}</Text>
 
           {/* WEEK ROWS */}
           <View style={styles.weekContent}>
@@ -130,15 +254,20 @@ export default function Dashboard() {
                 </View>
               </View>
               <View style={styles.dayGrid}>
-                {days.map((day, i) => (
+                {(userDays.length > 0
+                  ? userDays.map((d: any) => ({ label: d.dayName?.charAt(0) || "?", status: d.status }))
+                  : ["F","S","S","M","T","W","T"].map((l) => ({ label: l, status: "not_yet_open" }))
+                ).map((day, i) => (
                   <View
                     key={i}
                     style={[
                       styles.dayCircleSmall,
-                      i === 0 && styles.dayCircleActive,
+                      day.status === "done" && styles.dayCircleDone,
+                      day.status === "can_be_done" && styles.dayCircleToday,
+                      day.status === "false" && styles.dayCircleMissed,
                     ]}
                   >
-                    <Text style={styles.dayTextSmall}>{day}</Text>
+                    <Text style={[styles.dayTextSmall, day.status === "done" && styles.dayTextDone]}>{day.label}</Text>
                   </View>
                 ))}
               </View>
@@ -153,15 +282,20 @@ export default function Dashboard() {
                 </View>
               </View>
               <View style={styles.dayGrid}>
-                {days.map((day, i) => (
+                {(buddyDays.length > 0
+                  ? buddyDays.map((d: any) => ({ label: d.dayName?.charAt(0) || "?", status: d.status }))
+                  : ["F","S","S","M","T","W","T"].map((l) => ({ label: l, status: "not_yet_open" }))
+                ).map((day, i) => (
                   <View
                     key={i}
                     style={[
                       styles.dayCircleSmall,
-                      i === 0 && styles.dayCircleOutline,
+                      day.status === "done" && styles.dayCircleDone,
+                      day.status === "can_be_done" && styles.dayCircleToday,
+                      day.status === "false" && styles.dayCircleMissed,
                     ]}
                   >
-                    <Text style={styles.dayTextSmall}>{day}</Text>
+                    <Text style={[styles.dayTextSmall, day.status === "done" && styles.dayTextDone]}>{day.label}</Text>
                   </View>
                 ))}
               </View>
@@ -176,7 +310,7 @@ export default function Dashboard() {
             <Text style={styles.infoIcon}>ℹ️</Text>
           </View>
           <Text style={styles.stakesValue}>{stake}</Text>
-          <Text style={styles.stakesSubtext}>You need {goalWorkouts - userWorkouts} more workouts this week</Text>
+          <Text style={styles.stakesSubtext}>You need {Math.max(0, goalWorkouts - userWorkouts)} more workout{goalWorkouts - userWorkouts !== 1 ? "s" : ""} this week</Text>
         </View>
       </ScrollView>
 
@@ -287,6 +421,56 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
 
+  carouselCard: {
+    backgroundColor: "#1a1a1a",
+    borderWidth: 1,
+    borderColor: "#333",
+    borderRadius: 25,
+    overflow: "hidden",
+    marginBottom: 25,
+  },
+
+  carouselSlide: {
+    width: width - 40,
+    alignItems: "center",
+  },
+
+  proofImage: {
+    width: "100%",
+    height: 300,
+    borderTopLeftRadius: 25,
+    borderTopRightRadius: 25,
+  },
+
+  proofTimestamp: {
+    color: "#888",
+    fontSize: 12,
+    marginTop: 10,
+    marginBottom: 6,
+  },
+
+  dotRow: {
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 6,
+    paddingBottom: 14,
+  },
+
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#555",
+  },
+
+  dotActive: {
+    width: 28,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: "#39d2b4",
+  },
+
   weekCard: {
     backgroundColor: "rgba(57, 210, 180, 0.08)",
     borderWidth: 1,
@@ -384,21 +568,31 @@ const styles = StyleSheet.create({
     borderColor: "#444",
   },
 
-  dayCircleActive: {
+  dayCircleDone: {
     backgroundColor: "#39d2b4",
     borderColor: "#39d2b4",
   },
 
-  dayCircleOutline: {
+  dayCircleToday: {
     backgroundColor: "transparent",
     borderWidth: 2,
-    borderColor: "#666",
+    borderColor: "#39d2b4",
+  },
+
+  dayCircleMissed: {
+    backgroundColor: "#2a2a2a",
+    borderColor: "#333",
   },
 
   dayTextSmall: {
     color: "#fff",
     fontSize: 10,
     fontWeight: "600",
+  },
+
+  dayTextDone: {
+    color: "#000",
+    fontWeight: "700",
   },
 
   stakesCard: {
