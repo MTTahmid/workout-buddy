@@ -20,18 +20,21 @@ backend/
     │   ├── db.js
     │   └── gridfs.js
     ├── controllers/
-    │   └── userController.js
+    │   ├── userController.js
+    │   └── workoutController.js
     ├── middleware/
     │   └── proofUpload.js
     ├── models/
-    │   ├── User.js
+    │   ├── Users.js
     │   ├── Workout.js
     │   ├── BuddyPair.js
     │   ├── BuddyWorkout.js
-    │   ├── Bet.js
+    │   ├── BuddyChallenge.js
+    │   ├── CalorieTracker.js
     │   └── Challenge.js
     └── routes/
-        └── userRoutes.js
+        ├── userRoutes.js
+        └── workoutRoutes.js
 ```
 
 ## Setup
@@ -198,6 +201,31 @@ Rules:
 - `:id` must be the target id.
 - Content type: `multipart/form-data`
 - File field name: `proof`
+
+### Calorie Tracking
+
+| Method | Endpoint | Description |
+| ------ | -------- | ----------- |
+| POST | `/user/:id/calories` | Log a new calorie entry |
+| GET | `/user/:id/calories` | Get calorie history for user |
+
+#### `POST /user/:id/calories`
+
+Request body:
+
+```json
+{
+	"weight": 75,
+	"goal": 2500,
+	"workout": "Running",
+	"duration": 30,
+	"calories": 350
+}
+```
+
+#### `GET /user/:id/calories`
+
+Returns array of calorie tracking entries with metrics like weight, goal, workout type, duration, calories burned, and whether goal was met.
 - Images only, max size 5MB.
 - Proof is stored in Mongo GridFS bucket: `challengeProofs`.
 
