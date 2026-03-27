@@ -19,11 +19,12 @@ export default function Dashboard() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [userName, setUserName] = useState("x");
   const [buddyName, setBuddyName] = useState("Buddy");
+  const [goalWorkouts, setGoalWorkouts] = useState(3);
+  const [stake, setStake] = useState("1 Dinner");
 
   const days = ["F", "S", "S", "M", "T", "W", "T"];
   const userWorkouts = 0;
   const partnerWorkouts = 0;
-  const goalWorkouts = 3;
 
   const getFirstName = (name?: string) => {
     const trimmed = name?.trim();
@@ -34,9 +35,14 @@ export default function Dashboard() {
   useEffect(() => {
     const fetchNames = async () => {
       try {
-        const [buddyResponse, usersResponse] = await Promise.all([
+        const [buddyResponse, usersResponse, goalsResponse] = await Promise.all([
           fetch(`http://localhost:5001/user/${userId}/buddy`),
           fetch("http://localhost:5001/user/users"),
+          fetch(`http://localhost:5001/user/${userId}/weekly-goals`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({}),
+          }),
         ]);
 
         if (!buddyResponse.ok || !usersResponse.ok) {
@@ -55,8 +61,20 @@ export default function Dashboard() {
 
         setUserName(currentUserName);
         setBuddyName(currentBuddyName);
+
+        if (goalsResponse.ok) {
+          const goalsData = await goalsResponse.json();
+          const savedGoal = goalsData?.weeklyGoal?.weeklyWorkoutGoal;
+          const savedStake = goalsData?.weeklyGoal?.stake;
+          if (Number.isInteger(savedGoal) && savedGoal >= 1) {
+            setGoalWorkouts(savedGoal);
+          }
+          if (savedStake) {
+            setStake(savedStake);
+          }
+        }
       } catch (error) {
-        console.error("Failed to fetch dashboard names:", error);
+        console.error("Failed to fetch dashboard data:", error);
       }
     };
 
@@ -157,7 +175,7 @@ export default function Dashboard() {
             <Text style={styles.sectionTitle}>The Stakes 🎯</Text>
             <Text style={styles.infoIcon}>ℹ️</Text>
           </View>
-          <Text style={styles.stakesValue}>1 Dinner</Text>
+          <Text style={styles.stakesValue}>{stake}</Text>
           <Text style={styles.stakesSubtext}>You need {goalWorkouts - userWorkouts} more workouts this week</Text>
         </View>
       </ScrollView>
