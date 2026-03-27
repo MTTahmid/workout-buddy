@@ -21,10 +21,12 @@ type Challenge = {
   points: number;
   status: string;
   deadline: string;
+  createdAt: string;
   submittedAt: string | null;
+  hasProof: boolean;
   challenger: string;
   target: string;
-  proofUrl: string;
+  proofUrl: string | null;
 };
 
 export default function MiniBets() {
@@ -43,11 +45,11 @@ export default function MiniBets() {
   const fetchChallenges = async () => {
     try {
       const res = await fetch(
-        `${API_BASE_URL}/user/${userId}/challenge-photos?limit=50`
+        `${API_BASE_URL}/user/${userId}/challenges`
       );
       if (!res.ok) return;
       const data = await res.json();
-      setChallenges(data?.photos || []);
+      setChallenges(data?.challenges || []);
     } catch (e) {
       console.error("Failed to fetch challenges:", e);
     }
@@ -273,7 +275,7 @@ export default function MiniBets() {
                       {getTimeLeft(c.deadline)}
                     </Text>
                   </View>
-                  {c.submittedAt && c.status === "approved" && (
+                  {c.hasProof && c.status === "approved" && c.proofUrl && (
                     <Image
                       source={{
                         uri: `${API_BASE_URL}${c.proofUrl}`,
