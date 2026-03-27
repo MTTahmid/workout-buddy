@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
 import { useRouter } from "expo-router";
 import { USER_ID } from "@/constants/user";
+import { API_BASE_URL } from "@/constants/api";
 
 type Props = {
   visible: boolean;
@@ -16,7 +17,7 @@ export default function SideDrawer({ visible, onClose }: Props) {
     if (!visible) return;
     const fetchName = async () => {
       try {
-        const res = await fetch("http://localhost:5001/user/users");
+        const res = await fetch(`${API_BASE_URL}/user/users`);
         if (!res.ok) return;
         const users = await res.json();
         const user = Array.isArray(users)

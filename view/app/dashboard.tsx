@@ -13,6 +13,7 @@ import {
 } from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import { USER_ID } from "@/constants/user";
+import { API_BASE_URL } from "@/constants/api";
 import SideDrawer from "./SideDrawer";
 import * as ImagePicker from "expo-image-picker";
 
@@ -63,9 +64,9 @@ export default function Dashboard() {
     const fetchNames = async () => {
       try {
         const [buddyResponse, usersResponse, goalsResponse] = await Promise.all([
-          fetch(`http://localhost:5001/user/${userId}/buddy`),
-          fetch("http://localhost:5001/user/users"),
-          fetch(`http://localhost:5001/user/${userId}/weekly-goals`, {
+          fetch(`${API_BASE_URL}/user/${userId}/buddy`),
+          fetch(`${API_BASE_URL}/user/users`),
+          fetch(`${API_BASE_URL}/user/${userId}/weekly-goals`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({}),
@@ -124,7 +125,7 @@ export default function Dashboard() {
     const fetchDetails = async () => {
       try {
         const res = await fetch(
-          `http://localhost:5001/user/${userId}/weekly-goals/${weeklyGoalId}/details`
+          `${API_BASE_URL}/user/${userId}/weekly-goals/${weeklyGoalId}/details`
         );
         if (!res.ok) return;
         const data = await res.json();
@@ -197,7 +198,7 @@ export default function Dashboard() {
     setUploading(true);
     try {
       const res = await fetch(
-        `http://localhost:5001/user/${userId}/weekly-goals/${weeklyGoalId}/proof`,
+        `${API_BASE_URL}/user/${userId}/weekly-goals/${weeklyGoalId}/proof`,
         {
           method: "POST",
           body: formData,
@@ -254,7 +255,7 @@ export default function Dashboard() {
                 <View key={item._id} style={styles.carouselSlide}>
                   <Image
                     source={{
-                      uri: `http://localhost:5001/user/${userId}/weekly-goals/${weeklyGoalId}/proof/${item._id}`,
+                      uri: `${API_BASE_URL}/user/${userId}/weekly-goals/${weeklyGoalId}/proof/${item._id}`,
                     }}
                     style={styles.proofImage}
                     resizeMode="cover"

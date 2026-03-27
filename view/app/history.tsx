@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { USER_ID } from "@/constants/user";
+import { API_BASE_URL } from "@/constants/api";
 
 export default function History() {
   const router = useRouter();
@@ -14,7 +15,7 @@ export default function History() {
     const fetchHistory = async () => {
       try {
         const goalsRes = await fetch(
-          `http://localhost:5001/user/${userId}/weekly-goals`,
+          `${API_BASE_URL}/user/${userId}/weekly-goals`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -27,7 +28,7 @@ export default function History() {
         if (!goalId) return;
 
         const detailsRes = await fetch(
-          `http://localhost:5001/user/${userId}/weekly-goals/${goalId}/details`
+          `${API_BASE_URL}/user/${userId}/weekly-goals/${goalId}/details`
         );
         if (!detailsRes.ok) return;
         const details = await detailsRes.json();

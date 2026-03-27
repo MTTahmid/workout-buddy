@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, Pressable, Alert, ActivityInd
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { useState, useEffect } from "react";
 import { USER_ID } from "@/constants/user";
+import { API_BASE_URL } from "@/constants/api";
 
 export default function WeeklyRules() {
   const router = useRouter();
@@ -20,8 +21,8 @@ export default function WeeklyRules() {
     const fetchData = async () => {
       try {
         const [stakesRes, currentRes] = await Promise.all([
-          fetch(`http://localhost:5001/user/${userId}/weekly-goals/allowed-stakes`),
-          fetch(`http://localhost:5001/user/${userId}/weekly-goals`, {
+          fetch(`${API_BASE_URL}/user/${userId}/weekly-goals/allowed-stakes`),
+          fetch(`${API_BASE_URL}/user/${userId}/weekly-goals`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({}),
@@ -67,7 +68,7 @@ export default function WeeklyRules() {
 
     setSaving(true);
     try {
-      const response = await fetch(`http://localhost:5001/user/${userId}/weekly-goals`, {
+      const response = await fetch(`${API_BASE_URL}/user/${userId}/weekly-goals`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -180,7 +181,7 @@ export default function WeeklyRules() {
                   if (!trimmed) return;
                   setAddingCustom(true);
                   try {
-                    const res = await fetch(`http://localhost:5001/user/${userId}/weekly-goals/allowed-stakes`, {
+                    const res = await fetch(`${API_BASE_URL}/user/${userId}/weekly-goals/allowed-stakes`, {
                       method: "POST",
                       headers: { "Content-Type": "application/json" },
                       body: JSON.stringify({ stake: trimmed }),
