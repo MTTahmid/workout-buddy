@@ -295,6 +295,8 @@ Notes:
 | Method | Endpoint | Description |
 | ------ | -------- | ----------- |
 | POST | `/user/:id/challenges` | Challenger creates challenge for a buddy |
+| POST | `/user/:id/challenges/:challengeId/proof` | Challenged user uploads challenge proof image |
+| GET | `/user/:id/challenges/:challengeId/proof` | Stream challenge proof image (participants only) |
 
 #### `POST /user/:id/challenges`
 
@@ -314,6 +316,23 @@ Rules:
 - `:id` is the challenger id.
 - Only active buddies can challenge each other.
 - Challenge starts with `status = "pending"`.
+
+#### `POST /user/:id/challenges/:challengeId/proof`
+
+- `:id` must be the challenge target user.
+- Content type: `multipart/form-data`
+- File field name: `proof`
+- On success, challenge is auto-approved (`status = "approved"`) and challenge points are added to target user score.
+
+#### `GET /user/:id/challenges/:challengeId/proof`
+
+- `:id` must be either challenger or target.
+- Streams image bytes from GridFS for the challenge proof.
+
+Challenge timeout behavior:
+
+- If deadline is passed while challenge is still `pending` or `submitted`, challenge is auto-marked `rejected`.
+- Rejected challenges award no points.
 
 ### Calorie Tracking
 
