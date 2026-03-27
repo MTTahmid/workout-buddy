@@ -86,6 +86,8 @@ http://localhost:5000/
 | GET | `/user/:id/pairing-code` | Generate and return a new random 5-char pairing code |
 | PUT | `/user/:id/buddy/:pairingCode` | Pair user with buddy by pairing code (code is consumed/deleted) |
 | GET | `/user/:id/buddy` | Get active buddy profile/details for this user (sanitized) |
+| GET | `/user/:id/buddy/money` | Get detailed money earned info for both members of the buddy pair |
+| PUT | `/user/:id/buddy/money/toggle` | Enable or disable monetary tracking for the buddy pair |
 
 #### `GET /user/:id/pairing-code`
 
@@ -111,7 +113,8 @@ Response shape:
 	"buddyPair": {
 		"id": "<ObjectId>",
 		"status": "active",
-		"createdAt": "2026-03-27T12:00:00.000Z"
+		"createdAt": "2026-03-27T12:00:00.000Z",
+		"monetaryEnabled": true
 	},
 	"buddy": {
 		"_id": "<ObjectId>",
@@ -140,10 +143,69 @@ Response shape:
 		"habits": [],
 		"createdAt": "2026-01-10T00:00:00.000Z",
 		"score": {
-			"points": 20,
-			"penalties": 1
+			"points": 1000,
+			"penalties": 1,
+			"money": {
+				"taka": 10,
+				"formatted": "10.00 টাকা"
+			}
 		}
 	}
+}
+```
+
+#### `GET /user/:id/buddy/money`
+
+Returns detailed money conversion info for all members of the active buddy pair.
+
+**Conversion Rate:** 100 points = 1 taka (or 1000 points = 10 taka)
+
+Response shape:
+
+```json
+{
+	"buddyPairId": "<ObjectId>",
+	"monetaryEnabled": true,
+	"members": [
+		{
+			"userId": "<ObjectId>",
+			"points": 1500,
+			"moneyEarned": {
+				"taka": 15,
+				"formatted": "15.00 টাকা"
+			}
+		},
+		{
+			"userId": "<ObjectId>",
+			"points": 800,
+			"moneyEarned": {
+				"taka": 8,
+				"formatted": "8.00 টাকা"
+			}
+		}
+	]
+}
+```
+
+#### `PUT /user/:id/buddy/money/toggle`
+
+Enable or disable monetary tracking for the buddy pair.
+
+Request body:
+
+```json
+{
+	"enabled": true
+}
+```
+
+Response:
+
+```json
+{
+	"message": "Monetary tracking enabled",
+	"buddyPairId": "<ObjectId>",
+	"monetaryEnabled": true
 }
 ```
 

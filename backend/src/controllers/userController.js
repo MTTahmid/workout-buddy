@@ -40,6 +40,11 @@ const ALLOWED_WORKOUTS = {
 
 const PAIRING_CODE_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 
+// Convert points to taka (100 points = 1 taka, or 1000 points = 10 taka)
+function pointsToTaka(points) {
+  return points / 100;
+}
+
 function createRandomPairingCode() {
   let code = '';
 
@@ -69,6 +74,7 @@ function buildMemberScores(memberIds) {
     userId: memberId,
     points: 0,
     penalties: 0,
+    moneyEarned: 0,
   }));
 }
 
@@ -469,23 +475,125 @@ export async function getBuddyInfo(req, res) {
       ? buddyPair.memberScores.find((entry) => String(entry.userId) === String(buddy._id))
       : null;
 
+    const points = buddyScore?.points ?? 0;
+    const moneyInTaka = pointsToTaka(points);
+
     return res.status(200).json({
       userId: id,
       buddyPair: {
         id: buddyPair._id,
         status: buddyPair.status,
         createdAt: buddyPair.createdAt,
+        monetaryEnabled: buddyPair.monetaryEnabled,
       },
       buddy: {
         ...buddy,
         score: {
-          points: buddyScore?.points ?? 0,
+          points: points,
           penalties: buddyScore?.penalties ?? 0,
+          money: {
+            taka: moneyInTaka,
+            formatted: `${moneyInTaka.toFixed(2)} টাকা`,
+          },
         },
       },
     });
   } catch (error) {
     return res.status(500).json({ message: 'Failed to fetch buddy info' });
+  }
+}
+
+export async function getBuddyMoneyInfo(req, res) {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ message: 'Invalid user id' });
+    }
+
+    const user = await Users.findById(id).select('_id name');
+
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    const buddyPair = await BuddyPair.findOne({
+      members: user._id,
+      status: 'active',
+    })
+      .sort({ createdAt: -1 })
+      .select('_id members memberScores monetaryEnabled');
+
+    if (!buddyPair) {
+      return res.status(404).json({ message: 'Active buddy pair not found' });
+    }
+
+    // Get money info for both members
+    const moneyInfo = buddyPair.members.map((memberId) => {
+      const score = buddyPair.memberScores.find((entry) => String(entry.userId) === String(memberId));
+      const points = score?.points ?? 0;
+      const taka = pointsToTaka(points);
+
+      return {
+        userId: memberId,
+        points: points,
+        moneyEarned: {
+          taka: taka,
+          formatted: `${taka.toFixed(2)} টাকা`,
+        },
+      };
+    });
+
+    return res.status(200).json({
+      buddyPairId: buddyPair._id,
+      monetaryEnabled: buddyPair.monetaryEnabled,
+      members: moneyInfo,
+    });
+  } catch (error) {
+    console.error('getBuddyMoneyInfo error:', error);
+    return res.status(500).json({ message: 'Failed to fetch buddy money info' });
+  }
+}
+
+export async function toggleBuddyMonetary(req, res) {
+  try {
+    const { id } = req.params;
+    const { enabled } = req.body;
+
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ message: 'Invalid user id' });
+    }
+
+    if (typeof enabled !== 'boolean') {
+      return res.status(400).json({ message: 'enabled must be a boolean' });
+    }
+
+    const user = await Users.findById(id).select('_id');
+
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    const buddyPair = await BuddyPair.findOne({
+      members: user._id,
+      status: 'active',
+    }).sort({ createdAt: -1 });
+
+    if (!buddyPair) {
+      return res.status(404).json({ message: 'Active buddy pair not found' });
+    }
+
+    buddyPair.monetaryEnabled = enabled;
+    await buddyPair.save();
+
+    return res.status(200).json({
+      message: `Monetary tracking ${enabled ? 'enabled' : 'disabled'}`,
+      buddyPairId: buddyPair._id,
+      monetaryEnabled: buddyPair.monetaryEnabled,
+    });
+  } catch (error) {
+    console.error('toggleBuddyMonetary error:', error);
+    return res.status(500).json({ message: 'Failed to update buddy monetary setting' });
   }
 }
 
@@ -917,11 +1025,14 @@ export async function submitBuddyChallengeProof(req, res) {
         userId: challenge.target,
         points: 0,
         penalties: 0,
+        moneyEarned: 0,
       });
       targetScore = buddyPair.memberScores[buddyPair.memberScores.length - 1];
     }
 
     targetScore.points += challenge.points;
+    // Update money earned: 100 points = 1 taka
+    targetScore.moneyEarned = pointsToTaka(targetScore.points);
     challenge.status = 'approved';
 
     await Promise.all([challenge.save(), buddyPair.save()]);
