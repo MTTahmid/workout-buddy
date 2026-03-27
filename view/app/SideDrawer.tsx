@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
 import { useRouter } from "expo-router";
 import { USER_ID } from "@/constants/user";
@@ -10,6 +10,25 @@ type Props = {
 
 export default function SideDrawer({ visible, onClose }: Props) {
   const router = useRouter();
+  const [fullName, setFullName] = useState("");
+
+  useEffect(() => {
+    if (!visible) return;
+    const fetchName = async () => {
+      try {
+        const res = await fetch("http://localhost:5001/user/users");
+        if (!res.ok) return;
+        const users = await res.json();
+        const user = Array.isArray(users)
+          ? users.find((u: any) => String(u?._id) === String(USER_ID))
+          : null;
+        if (user?.name) setFullName(user.name);
+      } catch (e) {
+        console.error("Failed to fetch user name:", e);
+      }
+    };
+    fetchName();
+  }, [visible]);
 
   if (!visible) return null;
 
@@ -22,9 +41,9 @@ export default function SideDrawer({ visible, onClose }: Props) {
       <View style={styles.drawer}>
         <View style={styles.profileRow}>
           <View style={styles.profileCircle}>
-            <Text style={styles.profileInitial}>M</Text>
+            <Text style={styles.profileInitial}>{fullName ? fullName.charAt(0).toUpperCase() : ""}</Text>
           </View>
-          <Text style={styles.profileName}>Muntaha Tahiat</Text>
+          <Text style={styles.profileName}>{fullName}</Text>
         </View>
 
         <View style={styles.divider} />
@@ -38,7 +57,14 @@ export default function SideDrawer({ visible, onClose }: Props) {
           <Text style={styles.drawerItem}>Weekly Rules</Text>
         </TouchableOpacity>
 
-        <Text style={styles.drawerItem}>Wager Balance</Text>
+        <TouchableOpacity
+          onPress={() => {
+            onClose();
+            router.push(`/wager-balance?id=${USER_ID}`);
+          }}
+        >
+          <Text style={styles.drawerItem}>Wager Balance</Text>
+        </TouchableOpacity>
 
         <TouchableOpacity
           onPress={() => {
