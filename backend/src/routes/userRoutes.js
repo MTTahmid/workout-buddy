@@ -14,6 +14,7 @@ import {
   addWeeklyGoalStake,
   updateWeeklyGoal,
   createBuddyChallenge,
+  getBuddyChallenges,
   submitBuddyChallengeProof,
   getBuddyChallengeProof,
   submitWeeklyGoalProof,
@@ -56,6 +57,7 @@ router.get('/:id/history', getUserHistory);
 router.get('/:id/challenge-photos', getChallengePhotos);
 router.get('/:id/current-stakes', getCurrentStakes);
 router.post('/:id/weekly-goals', updateWeeklyGoal); //just added
+router.get('/:id/challenges', getBuddyChallenges);
 router.post('/:id/challenges', createBuddyChallenge);
 router.post('/:id/challenges/:challengeId/proof', proofUpload.single('proof'), submitBuddyChallengeProof);
 router.get('/:id/challenges/:challengeId/proof', getBuddyChallengeProof);

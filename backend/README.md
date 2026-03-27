@@ -356,9 +356,22 @@ Notes:
 
 | Method | Endpoint | Description |
 | ------ | -------- | ----------- |
+| GET | `/user/:id/challenges` | List challenge feed for user (as challenger or target) |
 | POST | `/user/:id/challenges` | Challenger creates challenge for a buddy |
 | POST | `/user/:id/challenges/:challengeId/proof` | Challenged user uploads challenge proof image |
 | GET | `/user/:id/challenges/:challengeId/proof` | Stream challenge proof image (participants only) |
+
+#### `GET /user/:id/challenges`
+
+- Returns challenges where `:id` is either challenger or target.
+- Results are sorted by newest first (`createdAt` descending).
+- Expired `pending` or `submitted` challenges are auto-marked `rejected` before response.
+
+Response includes:
+
+- `userId`, `count`
+- `challenges[]` with: `challengeId`, `workoutType`, `points`, `status`, `deadline`, `createdAt`
+- `submittedAt`, `hasProof`, `challenger`, `target`, `proofUrl` (nullable)
 
 #### `POST /user/:id/challenges`
 

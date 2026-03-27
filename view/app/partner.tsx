@@ -59,7 +59,7 @@ export default function Partner() {
         </View>
       )}
 
-      <Text style={styles.subText}>Enter partner's code</Text>
+      <Text style={styles.subText}>Enter partner&apos;s code</Text>
 
       <View style={{ alignItems: "center", marginVertical: 20 }}>
         <Text style={{ color: "#777" }}>or</Text>
