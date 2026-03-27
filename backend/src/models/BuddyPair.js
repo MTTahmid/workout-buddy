@@ -2,6 +2,10 @@ import mongoose from 'mongoose';
 
 const buddyPairSchema = new mongoose.Schema({
   members: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true }],
+  allowedStakes: {
+    type: [{ type: String, trim: true }],
+    default: ['1 Dinner', '$10', '1 Chore', 'Romantic Favor 😉'],
+  },
   memberScores: [{
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     points: { type: Number, default: 0 },
