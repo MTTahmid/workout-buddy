@@ -2374,19 +2374,28 @@ export async function WorkoutModelDeleter(req, res)
   try
   {
     const { id } = req.params;
-    const { title } = req.body;
+    const { title, modelId } = req.body;
 
     if (!mongoose.isValidObjectId(id))
     {
       return res.status(400).json({ message: 'Invalid user id' });
     }
 
-    if (typeof title !== 'string' || !title.trim())
-    {
-      return res.status(400).json({ message: 'Title must be a non-empty string' });
+    const normalizedTitle = typeof title === 'string' ? title.trim() : '';
+    const hasValidModelId = typeof modelId === 'string' && mongoose.isValidObjectId(modelId);
+
+    if (!hasValidModelId && !normalizedTitle) {
+      return res.status(400).json({ message: 'Provide modelId or title to delete' });
     }
 
-    const deleted = await WorkoutModel.findOneAndDelete({userId: id, title});
+    const deleteFilter = { userId: id };
+    if (hasValidModelId) {
+      deleteFilter._id = modelId;
+    } else {
+      deleteFilter.title = normalizedTitle;
+    }
+
+    const deleted = await WorkoutModel.findOneAndDelete(deleteFilter);
 
     if (!deleted)
     {

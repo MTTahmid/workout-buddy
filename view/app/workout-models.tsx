@@ -169,34 +169,30 @@ export default function WorkoutModels() {
     } catch {}
   };
 
-  const handleDelete = (title: string) => {
-    Alert.alert("Delete Model", `Delete "${title}"?`, [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Delete",
-        style: "destructive",
-        onPress: async () => {
-          try {
-            const res = await fetch(
-              `${API_BASE_URL}/user/${userId}/workout-models/delete`,
-              {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ Title: title }),
-              }
-            );
-            if (res.ok) {
-              fetchModels();
-            } else {
-              const data = await res.json();
-              Alert.alert("Error", data.message || "Failed to delete.");
-            }
-          } catch {
-            Alert.alert("Error", "Something went wrong.");
-          }
-        },
-      },
-    ]);
+  const performDelete = async (modelId: string, title: string) => {
+    try {
+      const res = await fetch(
+        `${API_BASE_URL}/user/${userId}/workout-models/delete`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ modelId, title }),
+        }
+      );
+
+      if (res.ok) {
+        await fetchModels();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        Alert.alert("Error", data.message || "Failed to delete.");
+      }
+    } catch {
+      Alert.alert("Error", "Something went wrong.");
+    }
+  };
+
+  const handleDelete = (modelId: string, title: string) => {
+    void performDelete(modelId, title);
   };
 
   const handleCreate = async () => {
@@ -434,7 +430,7 @@ export default function WorkoutModels() {
                       {tab === "custom" && (
                         <TouchableOpacity
                           style={styles.deleteBtn}
-                          onPress={() => handleDelete(model.title)}
+                          onPress={() => handleDelete(model._id, model.title)}
                         >
                           <Text style={styles.deleteBtnText}>Delete</Text>
                         </TouchableOpacity>
