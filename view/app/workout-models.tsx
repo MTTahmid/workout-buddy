@@ -141,7 +141,7 @@ export default function WorkoutModels() {
 
     // Also try to get all workouts (exercises) from a generic endpoint
     try {
-      const res = await fetch(`${API_BASE_URL}/user/workouts`);
+      const res = await fetch(`${API_BASE_URL}/user/workout/get`);
       if (res.ok) {
         const data = await res.json();
         const list = Array.isArray(data) ? data : data.workouts || [];

@@ -22,6 +22,7 @@ import {
   getWeeklyGoalDetails,
   CalorieLogger,
   GetCalorieHistory,
+  WorkoutGetter,
   WorkoutModelGetter,
   WorkoutModelCreator,
   WorkoutModelDeleter,
@@ -66,6 +67,7 @@ router.get('/:id/weekly-goals/:weeklyGoalId/proof/:proofId', getWeeklyGoalProof)
 router.get('/:id/weekly-goals/:weeklyGoalId/details', getWeeklyGoalDetails); //just added
 router.post('/:id/calories/log', CalorieLogger);
 router.get('/:id/calories/history', GetCalorieHistory);
+router.get('/workout/get', WorkoutGetter);
 router.get('/workout-models/get', WorkoutModelGetter);
 router.get('/:id/workout-models/get', WorkoutModelGetter);
 router.post('/:id/workout-models/create', WorkoutModelCreator);
