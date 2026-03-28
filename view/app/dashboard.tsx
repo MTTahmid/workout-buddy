@@ -10,6 +10,7 @@ import {
   Alert,
   NativeSyntheticEvent,
   NativeScrollEvent,
+  Platform,
 } from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import { USER_ID } from "@/constants/user";
@@ -63,6 +64,10 @@ export default function Dashboard() {
   useEffect(() => {
     const fetchNames = async () => {
       try {
+        // Prevent stale goal/proof state while refetching the current weekly goal.
+        setWeeklyGoalId(null);
+        setProofPhotos([]);
+
         const [buddyResponse, usersResponse, goalsResponse] = await Promise.all([
           fetch(`${API_BASE_URL}/user/${userId}/buddy`),
           fetch(`${API_BASE_URL}/user/users`),
@@ -165,11 +170,6 @@ export default function Dashboard() {
   }, [weeklyGoalId, buddyId, refreshKey]);
 
   const handleLogWorkout = async () => {
-    if (!weeklyGoalId) {
-      Alert.alert("Not ready", "Weekly goal not loaded yet.");
-      return;
-    }
-
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== "granted") {
       Alert.alert("Permission needed", "Camera access is required to log a workout.");
@@ -188,17 +188,51 @@ export default function Dashboard() {
     const filename = uri.split("/").pop() || "proof.jpg";
     const type = asset.mimeType || "image/jpeg";
 
-    const formData = new FormData();
-    formData.append("proof", {
-      uri,
-      name: filename,
-      type,
-    } as any);
-
     setUploading(true);
     try {
+      const formData = new FormData();
+
+      if (Platform.OS === "web") {
+        const assetResponse = await fetch(uri);
+        const assetBlob = await assetResponse.blob();
+        const resolvedType = assetBlob.type || type || "image/jpeg";
+        const resolvedName = filename || `proof.${resolvedType.split("/")[1] || "jpg"}`;
+        const webFile = new File([assetBlob], resolvedName, { type: resolvedType });
+        formData.append("proof", webFile);
+      } else {
+        formData.append("proof", {
+          uri,
+          name: filename,
+          type,
+        } as any);
+      }
+
+      // Re-resolve current goal id right before upload to avoid using an expired/stale id.
+      let goalIdForUpload = weeklyGoalId;
+      const goalRes = await fetch(`${API_BASE_URL}/user/${userId}/weekly-goals`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+
+      if (goalRes.ok) {
+        const goalData = await goalRes.json();
+        const latestGoalId = goalData?.weeklyGoal?._id;
+        if (latestGoalId) {
+          goalIdForUpload = latestGoalId;
+          if (latestGoalId !== weeklyGoalId) {
+            setWeeklyGoalId(latestGoalId);
+          }
+        }
+      }
+
+      if (!goalIdForUpload) {
+        Alert.alert("Not ready", "Weekly goal not loaded yet.");
+        return;
+      }
+
       const res = await fetch(
-        `${API_BASE_URL}/user/${userId}/weekly-goals/${weeklyGoalId}/proof`,
+        `${API_BASE_URL}/user/${userId}/weekly-goals/${goalIdForUpload}/proof`,
         {
           method: "POST",
           body: formData,
