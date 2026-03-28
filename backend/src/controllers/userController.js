@@ -1755,6 +1755,24 @@ export async function GetCalorieHistory(req, res)
     return res.status(500).json({ message: 'Failed to fetch Calorie history' });
   }
 }
+export async function WorkoutGetter(req, res)
+{
+  try
+  {
+    const workouts = await Workout.find();
+    if (!workouts.length)
+    {
+      return res.status(404).json({ message: 'No workouts found' });
+    }
+
+    return res.status(200).json(workouts);
+  }
+  catch (error)
+  {
+    console.error('WorkoutModelGetter error:', error);
+    return res.status(500).json({ message: 'Failed to retrieve Workout Model' });
+  }
+}
 export async function WorkoutModelGetter(req, res)
 {
  try
@@ -1767,7 +1785,7 @@ export async function WorkoutModelGetter(req, res)
       return res.status(400).json({ message: 'Invalid user id' });
     }
 
-    const models = await WorkoutModel.find({ userId: id });
+    const models = await WorkoutModel.find({ userId: id }).populate('workouts.exercise', 'title -_id');
 
     if (!models.length)
     {
@@ -1778,7 +1796,7 @@ export async function WorkoutModelGetter(req, res)
   }
   else
   {
-    const models = await WorkoutModel.find();
+    const models = await WorkoutModel.find().populate('workouts.exercise', 'title -_id');
     
     if (!models.length)
     {
@@ -2132,14 +2150,11 @@ export async function WorkoutModelSessionEnder(req, res)
       return res.status(404).json({message: 'Session not found'});
     }
 
-    const allDone = session.progress.every(p => p.completed);
-    if (!allDone)
-    {
-      return res.status(400).json({message: 'Session not completed yet'});
-    }
-
     const endTime = new Date();
     const totalTime = Math.round((endTime - session.startTime) / 1000);
+
+    const completedWorkouts = session.progress.filter(p => p.completed);
+    const allDone = completedWorkouts.length === session.progress.length;
 
     const record = await WMCompletionHistory.create(
       {
@@ -2148,7 +2163,7 @@ export async function WorkoutModelSessionEnder(req, res)
         startTime: session.startTime,
         endTime,
         totalTime,
-        workouts: session.progress.map(p => 
+        workouts: completedWorkouts.map(p => 
         ({
           exercise: p.exercise,
           sets: p.sets,
@@ -2161,7 +2176,11 @@ export async function WorkoutModelSessionEnder(req, res)
     
     await ActiveWorkoutModelSession.findByIdAndDelete(session._id);
 
-    return res.status(200).json({message: 'Workout Model completed and saved to history'});
+    return res.status(200).json({
+      message: allDone ? 'Workout Model completed and saved to history' : 'Workout session ended early and saved to history',
+      completed: allDone, exercisesCompleted: completedWorkouts.length,
+      exercisesTotal: session.progress.length,
+    });
   }
   catch (error)
   {
