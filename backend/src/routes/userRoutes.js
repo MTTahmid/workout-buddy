@@ -20,6 +20,9 @@ import {
   submitWeeklyGoalProof,
   getWeeklyGoalProof,
   getWeeklyGoalDetails,
+  SearchFoods,
+  CalorieIntakeLogger,
+  GetCalorieIntakeHistory,
   CalorieLogger,
   GetCalorieHistory,
   WorkoutGetter,
@@ -65,6 +68,9 @@ router.get('/:id/challenges/:challengeId/proof', getBuddyChallengeProof);
 router.post('/:id/weekly-goals/:weeklyGoalId/proof', proofUpload.single('proof'), submitWeeklyGoalProof); //just added
 router.get('/:id/weekly-goals/:weeklyGoalId/proof/:proofId', getWeeklyGoalProof); //just added
 router.get('/:id/weekly-goals/:weeklyGoalId/details', getWeeklyGoalDetails); //just added
+router.get('/foods/search', SearchFoods);
+router.post('/:id/calories/intake/log', CalorieIntakeLogger);
+router.get('/:id/calories/intake/history', GetCalorieIntakeHistory);
 router.post('/:id/calories/log', CalorieLogger);
 router.get('/:id/calories/history', GetCalorieHistory);
 router.get('/workout/get', WorkoutGetter);
@@ -76,7 +82,7 @@ router.post('/:id/workout-models/edit', WorkoutModelEditor);
 router.post('/:id/active-workout-model-session/start', WorkoutModelSessionStarter);
 router.get('/:id/active-workout-model-session/tracker', WorkoutModelSessionTracker);
 router.post('/:id/active-workout-model-session/update', WorkoutModelSessionUpdater);
-router.delete('/:id/active-workout-model-session/end', WorkoutModelSessionEnder);
+router.delete('/:id/active-workout-model-session/end/:sessionId', WorkoutModelSessionEnder);
 router.get('/:id/user-fitness/stats', FitnessGetter);
 router.post('/:id/user-fitness/survey', FitnessSetter);
 router.post('/:id/user-fitness/update', FitnessUpdater);

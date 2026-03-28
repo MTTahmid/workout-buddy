@@ -4,6 +4,7 @@ import BuddyWorkout from '../models/BuddyWorkout.js';
 import WeeklyGoal from '../models/WeeklyGoal.js';
 import BuddyChallenge from '../models/BuddyChallenge.js';
 import CalorieTracker from '../models/CalorieTracker.js';
+import CalorieIntake from '../models/CalorieIntake.js';
 import Workout from '../models/Workout.js';
 import WorkoutModel from '../models/WorkoutModel.js';
 import ActiveWorkoutModelSession from '../models/ActiveWorkoutModelSession.js';
@@ -39,6 +40,7 @@ const ALLOWED_WORKOUTS = {
 };
 
 const PAIRING_CODE_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+const USDA_API_KEY = process.env.USDA_API_KEY || 'DEMO_KEY';
 
 // Convert points to taka (100 points = 1 taka, or 1000 points = 10 taka)
 function pointsToTaka(points) {
@@ -209,33 +211,98 @@ async function applyPersistentUserStreaks(weeklyGoal, weekEndDate) {
   }
 }
 
-async function ensureWeeklyGoalForPair(buddyPair) {
-  let weeklyGoal = await WeeklyGoal.findOne({ buddyPairId: buddyPair._id });
+async function deleteWeeklyGoalProofFiles(weeklyGoal) {
+  const proofs = Array.isArray(weeklyGoal?.proofs) ? weeklyGoal.proofs : [];
 
-  if (!weeklyGoal) {
-    weeklyGoal = await WeeklyGoal.findOne({
-      participants: { $all: buddyPair.members, $size: 2 },
-    }).sort({ startDate: -1 });
-
-    if (weeklyGoal) {
-      weeklyGoal.buddyPairId = buddyPair._id;
-      if (!Number.isInteger(weeklyGoal.weeklyWorkoutGoal) || weeklyGoal.weeklyWorkoutGoal < 1) {
-        weeklyGoal.weeklyWorkoutGoal = DEFAULT_WEEKLY_GOAL;
-      }
-      if (!weeklyGoal.stake) {
-        weeklyGoal.stake = DEFAULT_WEEKLY_STAKE;
-      }
-      if (!Array.isArray(weeklyGoal.dailyStreaks) || weeklyGoal.dailyStreaks.length === 0) {
-        weeklyGoal.dailyStreaks = buildEmptyDailyStreaks(buddyPair.members);
-      }
-      if (!Array.isArray(weeklyGoal.streakStatus) || weeklyGoal.streakStatus.length === 0) {
-        weeklyGoal.streakStatus = buildEmptyStreakStatus(buddyPair.members);
-      }
-      if (!Array.isArray(weeklyGoal.proofs)) {
-        weeklyGoal.proofs = [];
-      }
-      await weeklyGoal.save();
+  for (const proof of proofs) {
+    if (proof?.fileId) {
+      await deleteProofFromGridFS(proof.fileId).catch(() => null);
     }
+  }
+}
+
+async function deleteDuplicateWeeklyGoals({ buddyPairId, participants, keepGoalId }) {
+  const participantSet = new Set((participants || []).map((memberId) => String(memberId)));
+  const allCandidates = await WeeklyGoal.find({ _id: { $ne: keepGoalId } })
+    .select('_id buddyPairId participants proofs');
+
+  const duplicates = allCandidates.filter((goal) => {
+    if (String(goal?.buddyPairId || '') === String(buddyPairId || '')) {
+      return true;
+    }
+
+    const goalParticipants = Array.isArray(goal?.participants)
+      ? goal.participants.map((memberId) => String(memberId))
+      : [];
+
+    if (goalParticipants.length !== participantSet.size || participantSet.size === 0) {
+      return false;
+    }
+
+    return goalParticipants.every((memberId) => participantSet.has(memberId));
+  });
+
+  for (const duplicateGoal of duplicates) {
+    await deleteWeeklyGoalProofFiles(duplicateGoal);
+    await WeeklyGoal.deleteOne({ _id: duplicateGoal._id });
+  }
+}
+
+function getWeeklyGoalSortDateValue(goal) {
+  if (!goal) {
+    return Number.NEGATIVE_INFINITY;
+  }
+
+  const candidates = [goal.endDate, goal.startDate, goal.updatedAt, goal.createdAt]
+    .map((value) => new Date(value))
+    .map((date) => (Number.isNaN(date.getTime()) ? Number.NEGATIVE_INFINITY : date.getTime()));
+
+  return Math.max(...candidates);
+}
+
+function pickNewestWeeklyGoal(primaryGoal, fallbackGoal) {
+  if (!primaryGoal) {
+    return fallbackGoal;
+  }
+
+  if (!fallbackGoal) {
+    return primaryGoal;
+  }
+
+  return getWeeklyGoalSortDateValue(fallbackGoal) > getWeeklyGoalSortDateValue(primaryGoal)
+    ? fallbackGoal
+    : primaryGoal;
+}
+
+async function ensureWeeklyGoalForPair(buddyPair) {
+  const [pairScopedWeeklyGoal, participantScopedWeeklyGoal] = await Promise.all([
+    WeeklyGoal.findOne({ buddyPairId: buddyPair._id })
+      .sort({ endDate: -1, startDate: -1, updatedAt: -1, createdAt: -1 }),
+    WeeklyGoal.findOne({
+      participants: { $all: buddyPair.members, $size: 2 },
+    }).sort({ endDate: -1, startDate: -1, updatedAt: -1, createdAt: -1 }),
+  ]);
+
+  let weeklyGoal = pickNewestWeeklyGoal(pairScopedWeeklyGoal, participantScopedWeeklyGoal);
+
+  if (weeklyGoal) {
+    weeklyGoal.buddyPairId = buddyPair._id;
+    if (!Number.isInteger(weeklyGoal.weeklyWorkoutGoal) || weeklyGoal.weeklyWorkoutGoal < 1) {
+      weeklyGoal.weeklyWorkoutGoal = DEFAULT_WEEKLY_GOAL;
+    }
+    if (!weeklyGoal.stake) {
+      weeklyGoal.stake = DEFAULT_WEEKLY_STAKE;
+    }
+    if (!Array.isArray(weeklyGoal.dailyStreaks) || weeklyGoal.dailyStreaks.length === 0) {
+      weeklyGoal.dailyStreaks = buildEmptyDailyStreaks(buddyPair.members);
+    }
+    if (!Array.isArray(weeklyGoal.streakStatus) || weeklyGoal.streakStatus.length === 0) {
+      weeklyGoal.streakStatus = buildEmptyStreakStatus(buddyPair.members);
+    }
+    if (!Array.isArray(weeklyGoal.proofs)) {
+      weeklyGoal.proofs = [];
+    }
+    await weeklyGoal.save();
   }
 
   if (!weeklyGoal) {
@@ -257,12 +324,17 @@ async function ensureWeeklyGoalForPair(buddyPair) {
     });
   }
 
+  // Keep exactly one weekly goal document for this pair.
+  await deleteDuplicateWeeklyGoals({
+    buddyPairId: buddyPair._id,
+    participants: buddyPair.members,
+    keepGoalId: weeklyGoal._id,
+  });
+
   return weeklyGoal;
 }
 
 async function resetWeeklyGoalIfExpired(weeklyGoal, now = new Date()) {
-  let updated = false;
-
   if (!(weeklyGoal.endDate instanceof Date) || Number.isNaN(weeklyGoal.endDate.getTime())) {
     const startDate = buildWeeklyWindowStart(now);
     weeklyGoal.startDate = startDate;
@@ -277,30 +349,39 @@ async function resetWeeklyGoalIfExpired(weeklyGoal, now = new Date()) {
   }
 
   while (now > weeklyGoal.endDate) {
-    const previousWeekEndDate = weeklyGoal.endDate;
+    const expiredGoal = weeklyGoal;
+    const previousWeekEndDate = expiredGoal.endDate;
     const bothCompletedPreviousWeek =
-      Array.isArray(weeklyGoal.streakStatus)
-      && weeklyGoal.streakStatus.length === weeklyGoal.participants.length
-      && weeklyGoal.streakStatus.every((entry) => entry.streak === true);
+      Array.isArray(expiredGoal.streakStatus)
+      && expiredGoal.streakStatus.length === expiredGoal.participants.length
+      && expiredGoal.streakStatus.every((entry) => entry.streak === true);
 
-    await applyPersistentUserStreaks(weeklyGoal, previousWeekEndDate);
+    await applyPersistentUserStreaks(expiredGoal, previousWeekEndDate);
 
-    // Keep combined streak true only if each completed the previous week.
-    weeklyGoal.combined_streak = bothCompletedPreviousWeek;
+    const nextStartDate = buildWeeklyWindowStart(expiredGoal.endDate);
+    const nextEndDate = buildWeeklyWindowEnd(nextStartDate);
 
-    const nextStartDate = buildWeeklyWindowStart(weeklyGoal.endDate);
-    weeklyGoal.startDate = nextStartDate;
-    weeklyGoal.endDate = buildWeeklyWindowEnd(nextStartDate);
-    weeklyGoal.dailyStreaks = buildEmptyDailyStreaks(weeklyGoal.participants);
-    weeklyGoal.streakStatus = buildEmptyStreakStatus(weeklyGoal.participants);
-    weeklyGoal.proofs = [];
-    weeklyGoal.status = 'active';
+    weeklyGoal = await WeeklyGoal.create({
+      buddyPairId: expiredGoal.buddyPairId || null,
+      participants: expiredGoal.participants,
+      weeklyWorkoutGoal: Math.max(1, Number(expiredGoal.weeklyWorkoutGoal) || DEFAULT_WEEKLY_GOAL),
+      stake: expiredGoal.stake || DEFAULT_WEEKLY_STAKE,
+      startDate: nextStartDate,
+      endDate: nextEndDate,
+      status: 'active',
+      dailyStreaks: buildEmptyDailyStreaks(expiredGoal.participants),
+      streakStatus: buildEmptyStreakStatus(expiredGoal.participants),
+      combined_streak: false,
+      proofs: [],
+    });
 
-    updated = true;
-  }
+    // Preserve user streak progression, but remove expired goal artifacts/doc.
+    if (bothCompletedPreviousWeek) {
+      weeklyGoal.combined_streak = false;
+    }
 
-  if (updated) {
-    await weeklyGoal.save();
+    await deleteWeeklyGoalProofFiles(expiredGoal);
+    await WeeklyGoal.deleteOne({ _id: expiredGoal._id });
   }
 
   return weeklyGoal;
@@ -1419,12 +1500,39 @@ export async function submitWeeklyGoalProof(req, res) {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    let weeklyGoal = await WeeklyGoal.findById(weeklyGoalId);
-    if (!weeklyGoal) {
-      return res.status(404).json({ message: 'Weekly goal not found' });
+    const buddyPair = await BuddyPair.findOne({
+      members: user._id,
+      status: 'active',
+    }).select('_id members');
+
+    if (!buddyPair) {
+      return res.status(400).json({ message: 'User is not in an active buddy pair' });
     }
 
+    // Always upload proof to the current active goal for the pair.
+    // This avoids stale client-side weeklyGoalId values posting to expired docs.
+    let weeklyGoal = await ensureWeeklyGoalForPair(buddyPair);
+
     weeklyGoal = await resetWeeklyGoalIfExpired(weeklyGoal);
+
+    // If client sent an old weeklyGoalId, remove it if it belongs to this same pair.
+    if (String(weeklyGoalId) !== String(weeklyGoal._id)) {
+      const staleGoal = await WeeklyGoal.findById(weeklyGoalId).select('_id participants proofs');
+      if (staleGoal) {
+        const staleParticipants = Array.isArray(staleGoal.participants)
+          ? staleGoal.participants.map((participantId) => String(participantId))
+          : [];
+        const pairParticipants = new Set((buddyPair.members || []).map((memberId) => String(memberId)));
+        const samePairGoal =
+          staleParticipants.length === pairParticipants.size
+          && staleParticipants.every((participantId) => pairParticipants.has(participantId));
+
+        if (samePairGoal) {
+          await deleteWeeklyGoalProofFiles(staleGoal);
+          await WeeklyGoal.deleteOne({ _id: staleGoal._id });
+        }
+      }
+    }
 
     // Check if user is a participant
     const isParticipant = weeklyGoal.participants.some((p) => String(p) === String(id));
@@ -1498,6 +1606,7 @@ export async function submitWeeklyGoalProof(req, res) {
       message: 'Weekly goal proof uploaded successfully',
       weeklyGoal: {
         _id: weeklyGoal._id,
+        requestedWeeklyGoalId: weeklyGoalId,
         dailyStreaks: cappedDailyStreaks,
         streakStatus: weeklyGoal.streakStatus,
         combined_streak: weeklyGoal.combined_streak,
@@ -1508,6 +1617,25 @@ export async function submitWeeklyGoalProof(req, res) {
     console.error('submitWeeklyGoalProof error:', error);
     return res.status(500).json({ message: 'Failed to submit weekly goal proof' });
   }
+}
+
+function streamWeeklyGoalProof(res, proof) {
+  res.setHeader('Content-Type', proof.contentType || 'application/octet-stream');
+  res.setHeader(
+    'Content-Disposition',
+    `inline; filename="${proof.filename || 'weekly-goal-proof'}"`
+  );
+
+  const downloadStream = getProofDownloadStream(proof.fileId);
+  downloadStream.on('error', () => {
+    if (!res.headersSent) {
+      res.status(404).json({ message: 'Proof file not found' });
+    } else {
+      res.end();
+    }
+  });
+
+  return downloadStream.pipe(res);
 }
 
 export async function getWeeklyGoalProof(req, res) {
@@ -1527,10 +1655,16 @@ export async function getWeeklyGoalProof(req, res) {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    let weeklyGoal = await WeeklyGoal.findById(weeklyGoalId);
-    if (!weeklyGoal) {
-      return res.status(404).json({ message: 'Weekly goal not found' });
+    const buddyPair = await BuddyPair.findOne({
+      members: user._id,
+      status: 'active',
+    }).select('_id members');
+
+    if (!buddyPair) {
+      return res.status(400).json({ message: 'User is not in an active buddy pair' });
     }
+
+    let weeklyGoal = await ensureWeeklyGoalForPair(buddyPair);
 
     weeklyGoal = await resetWeeklyGoalIfExpired(weeklyGoal);
 
@@ -1544,22 +1678,7 @@ export async function getWeeklyGoalProof(req, res) {
       return res.status(404).json({ message: 'Proof not found' });
     }
 
-    res.setHeader('Content-Type', proof.contentType || 'application/octet-stream');
-    res.setHeader(
-      'Content-Disposition',
-      `inline; filename="${proof.filename || 'weekly-goal-proof'}"`
-    );
-
-    const downloadStream = getProofDownloadStream(proof.fileId);
-    downloadStream.on('error', () => {
-      if (!res.headersSent) {
-        res.status(404).json({ message: 'Proof file not found' });
-      } else {
-        res.end();
-      }
-    });
-
-    return downloadStream.pipe(res);
+    return streamWeeklyGoalProof(res, proof);
   } catch (error) {
     console.error('getWeeklyGoalProof error:', error);
     return res.status(500).json({ message: 'Failed to fetch weekly goal proof' });
@@ -1709,6 +1828,367 @@ function calorieCalc(workout, duration, weight)
   const { met } = ALLOWED_WORKOUTS[workout];
   return Math.round(met*weight*(duration/60));
 }
+
+function toPositiveNumber(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return null;
+  }
+
+  return parsed;
+}
+
+function parseKcalPer100gFromProduct(product) {
+  const nutriments = product?.nutriments || {};
+  const candidates = [
+    nutriments['energy-kcal_100g'],
+    nutriments['energy-kcal_value'],
+    nutriments.energyKcal100g,
+  ];
+
+  for (const candidate of candidates) {
+    const parsed = Number(candidate);
+    if (Number.isFinite(parsed) && parsed >= 0) {
+      return parsed;
+    }
+  }
+
+  return null;
+}
+
+const FALLBACK_FOODS = [
+  { foodName: 'Brown Rice', kcalPer100g: 111 },
+  { foodName: 'White Rice', kcalPer100g: 130 },
+  { foodName: 'Chicken Breast', kcalPer100g: 165 },
+  { foodName: 'Egg', kcalPer100g: 155 },
+  { foodName: 'Banana', kcalPer100g: 89 },
+  { foodName: 'Apple', kcalPer100g: 52 },
+  { foodName: 'Bread', kcalPer100g: 265 },
+  { foodName: 'Broccoli', kcalPer100g: 34 },
+  { foodName: 'Oats', kcalPer100g: 389 },
+  { foodName: 'Almonds', kcalPer100g: 579 },
+  { foodName: 'Peanut Butter', kcalPer100g: 588 },
+  { foodName: 'Milk', kcalPer100g: 42 },
+  { foodName: 'Yogurt', kcalPer100g: 59 },
+  { foodName: 'Potato', kcalPer100g: 77 },
+  { foodName: 'Lentils', kcalPer100g: 116 },
+  { foodName: 'Beef', kcalPer100g: 250 },
+  { foodName: 'Salmon', kcalPer100g: 208 },
+  { foodName: 'Orange', kcalPer100g: 47 },
+  { foodName: 'Avocado', kcalPer100g: 160 },
+  { foodName: 'Cheese', kcalPer100g: 402 },
+];
+
+function getFallbackFoods(searchTerm) {
+  const query = searchTerm.trim().toLowerCase();
+  if (!query) {
+    return [];
+  }
+
+  return FALLBACK_FOODS
+    .filter((item) => item.foodName.toLowerCase().includes(query))
+    .slice(0, 15)
+    .map((item) => ({
+      productId: null,
+      foodName: item.foodName,
+      brand: 'Local fallback',
+      servingSize: null,
+      kcalPer100g: item.kcalPer100g,
+    }));
+}
+
+async function fetchOpenFoodFactsJson(url) {
+  const response = await fetch(url, {
+    headers: {
+      'User-Agent': 'workout-buddy/1.0 (calorie-intake feature)',
+      Accept: 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`OpenFoodFacts request failed with status ${response.status}`);
+  }
+
+  return response.json();
+}
+
+function parseKcalFromUsdaNutrients(nutrients = []) {
+  if (!Array.isArray(nutrients)) {
+    return null;
+  }
+
+  const energy = nutrients.find((item) => {
+    const nutrientIdMatch = Number(item?.nutrientId) === 1008;
+    const nutrientName = typeof item?.nutrientName === 'string' ? item.nutrientName.toLowerCase() : '';
+    const isEnergyName = nutrientName.includes('energy');
+    return nutrientIdMatch || isEnergyName;
+  });
+
+  const candidates = [energy?.value, energy?.amount, energy?.nutrientNumber];
+  for (const candidate of candidates) {
+    const parsed = Number(candidate);
+    if (Number.isFinite(parsed) && parsed >= 0) {
+      return parsed;
+    }
+  }
+
+  return null;
+}
+
+async function searchUsdaFoods(searchTerm) {
+  const url = new URL('https://api.nal.usda.gov/fdc/v1/foods/search');
+  url.searchParams.set('api_key', USDA_API_KEY);
+  url.searchParams.set('query', searchTerm);
+  url.searchParams.set('pageSize', '25');
+
+  const response = await fetch(url.toString(), {
+    headers: {
+      Accept: 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`USDA search failed with status ${response.status}`);
+  }
+
+  const payload = await response.json();
+  const foods = Array.isArray(payload?.foods) ? payload.foods : [];
+
+  return foods
+    .map((item) => {
+      const foodName = typeof item?.description === 'string' ? item.description.trim() : '';
+      if (!foodName) {
+        return null;
+      }
+
+      const kcalPer100g = parseKcalFromUsdaNutrients(item?.foodNutrients || []);
+      return {
+        productId: item?.fdcId ? `usda:${item.fdcId}` : null,
+        foodName,
+        brand: item?.brandOwner || item?.dataType || 'USDA',
+        servingSize: null,
+        kcalPer100g,
+      };
+    })
+    .filter(Boolean)
+    .slice(0, 20);
+}
+
+async function fetchUsdaFoodById(fdcId) {
+  const url = new URL(`https://api.nal.usda.gov/fdc/v1/food/${encodeURIComponent(fdcId)}`);
+  url.searchParams.set('api_key', USDA_API_KEY);
+
+  const response = await fetch(url.toString(), {
+    headers: {
+      Accept: 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`USDA product lookup failed with status ${response.status}`);
+  }
+
+  return response.json();
+}
+
+export async function SearchFoods(req, res) {
+  try {
+    const searchTerm = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+
+    if (!searchTerm || searchTerm.length < 2) {
+      return res.status(200).json({ foods: [] });
+    }
+
+    const url = new URL('https://world.openfoodfacts.org/cgi/search.pl');
+    url.searchParams.set('search_terms', searchTerm);
+    url.searchParams.set('search_simple', '1');
+    url.searchParams.set('action', 'process');
+    url.searchParams.set('json', '1');
+    url.searchParams.set('page_size', '20');
+    url.searchParams.set('fields', 'code,product_name,brands,nutriments,serving_size');
+
+    let foods = [];
+    let source = 'openfoodfacts';
+
+    try {
+      const payload = await fetchOpenFoodFactsJson(url.toString());
+      const products = Array.isArray(payload?.products) ? payload.products : [];
+
+      foods = products
+        .map((product) => {
+          const foodName = typeof product?.product_name === 'string' ? product.product_name.trim() : '';
+          if (!foodName) {
+            return null;
+          }
+
+          const kcalPer100g = parseKcalPer100gFromProduct(product);
+          return {
+            productId: product?.code || null,
+            foodName,
+            brand: typeof product?.brands === 'string' ? product.brands : null,
+            servingSize: typeof product?.serving_size === 'string' ? product.serving_size : null,
+            kcalPer100g,
+          };
+        })
+        .filter(Boolean)
+        .slice(0, 20);
+    } catch (offError) {
+      console.warn('SearchFoods OpenFoodFacts unavailable:', offError?.message || offError);
+    }
+
+    if (foods.length < 8) {
+      try {
+        const usdaFoods = await searchUsdaFoods(searchTerm);
+        if (usdaFoods.length > 0) {
+          foods = usdaFoods;
+          source = 'usda';
+        }
+      } catch (usdaError) {
+        console.warn('SearchFoods USDA unavailable:', usdaError?.message || usdaError);
+      }
+    }
+
+    if (foods.length === 0) {
+      const fallbackFoods = getFallbackFoods(searchTerm);
+      return res.status(200).json({ foods: fallbackFoods, source: 'fallback' });
+    }
+
+    return res.status(200).json({ foods, source });
+  } catch (error) {
+    console.error('SearchFoods error:', error);
+    const searchTerm = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+    const fallbackFoods = getFallbackFoods(searchTerm);
+    return res.status(200).json({
+      foods: fallbackFoods,
+      source: 'fallback',
+      warning: 'Live food API unavailable, showing local fallback foods.',
+    });
+  }
+}
+
+export async function CalorieIntakeLogger(req, res) {
+  try {
+    const { id } = req.params;
+    const {
+      foodName,
+      productId,
+      grams,
+      quantity,
+      kcalPer100g: providedKcalPer100g,
+      date,
+    } = req.body;
+
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ message: 'Invalid user id' });
+    }
+
+    const user = await Users.findById(id).select('_id');
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    const normalizedFoodName = typeof foodName === 'string' ? foodName.trim() : '';
+    if (!normalizedFoodName) {
+      return res.status(400).json({ message: 'foodName is required' });
+    }
+
+    const parsedGrams = toPositiveNumber(grams);
+    if (!parsedGrams) {
+      return res.status(400).json({ message: 'grams must be a positive number' });
+    }
+
+    const parsedQuantity = toPositiveNumber(quantity);
+    if (!parsedQuantity) {
+      return res.status(400).json({ message: 'quantity must be a positive number' });
+    }
+
+    let resolvedKcalPer100g = null;
+    if (typeof productId === 'string' && productId.trim()) {
+      const normalizedProductId = productId.trim();
+
+      if (normalizedProductId.startsWith('usda:')) {
+        const fdcId = normalizedProductId.split(':')[1];
+        if (fdcId) {
+          try {
+            const usdaProduct = await fetchUsdaFoodById(fdcId);
+            resolvedKcalPer100g = parseKcalFromUsdaNutrients(usdaProduct?.foodNutrients || []);
+          } catch (usdaLookupError) {
+            console.warn('CalorieIntakeLogger USDA lookup fallback:', usdaLookupError?.message || usdaLookupError);
+          }
+        }
+      } else {
+        try {
+          const productUrl = new URL(`https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(normalizedProductId)}.json`);
+          productUrl.searchParams.set('fields', 'code,product_name,nutriments');
+          const productPayload = await fetchOpenFoodFactsJson(productUrl.toString());
+          resolvedKcalPer100g = parseKcalPer100gFromProduct(productPayload?.product);
+        } catch (productLookupError) {
+          console.warn('CalorieIntakeLogger OpenFoodFacts lookup fallback:', productLookupError?.message || productLookupError);
+        }
+      }
+    }
+
+    if (resolvedKcalPer100g === null) {
+      const fallbackKcal = Number(providedKcalPer100g);
+      if (Number.isFinite(fallbackKcal) && fallbackKcal >= 0) {
+        resolvedKcalPer100g = fallbackKcal;
+      }
+    }
+
+    if (resolvedKcalPer100g === null) {
+      return res.status(400).json({
+        message: 'Could not resolve calories for this food. Please pick another result.',
+      });
+    }
+
+    const intakeCalories = Math.round((resolvedKcalPer100g * parsedGrams * parsedQuantity) / 100);
+
+    const entry = await CalorieIntake.create({
+      userId: user._id,
+      foodName: normalizedFoodName,
+      productId: typeof productId === 'string' && productId.trim() ? productId.trim() : null,
+      grams: parsedGrams,
+      quantity: parsedQuantity,
+      kcalPer100g: resolvedKcalPer100g,
+      intakeCalories,
+      source: 'openfoodfacts',
+      date: date ? new Date(date) : new Date(),
+    });
+
+    return res.status(201).json(entry);
+  } catch (error) {
+    console.error('CalorieIntakeLogger error:', error);
+    return res.status(500).json({ message: 'Failed to log calorie intake' });
+  }
+}
+
+export async function GetCalorieIntakeHistory(req, res) {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ message: 'Invalid user id' });
+    }
+
+    const user = await Users.findById(id).select('_id');
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    const entries = await CalorieIntake.find({ userId: user._id }).sort({ date: -1, createdAt: -1 });
+    const totalIntakeCalories = entries.reduce((sum, entry) => sum + (entry.intakeCalories || 0), 0);
+
+    return res.status(200).json({
+      userId: id,
+      totalIntakeCalories,
+      entries,
+    });
+  } catch (error) {
+    console.error('GetCalorieIntakeHistory error:', error);
+    return res.status(500).json({ message: 'Failed to fetch calorie intake history' });
+  }
+}
+
 export async function GetCalorieHistory(req, res)
 {
   try
@@ -2087,14 +2567,22 @@ export async function WorkoutModelSessionUpdater(req, res)
   try
   {
     const { id } = req.params;
-    const { exerciseId, timeTaken } = req.body;
+    const { exerciseId, timeTaken, progressIndex } = req.body;
 
     if (!mongoose.isValidObjectId(id))
     {
       return res.status(400).json({ message: 'Invalid user id' });
     }
 
-    if (!mongoose.isValidObjectId(exerciseId))
+    const hasExerciseId = typeof exerciseId === 'string' && exerciseId.trim().length > 0;
+    const hasProgressIndex = Number.isInteger(progressIndex) && progressIndex >= 0;
+
+    if (!hasExerciseId && !hasProgressIndex)
+    {
+      return res.status(400).json({ message: 'exerciseId or progressIndex is required' });
+    }
+
+    if (hasExerciseId && !mongoose.isValidObjectId(exerciseId))
     {
       return res.status(400).json({ message: 'Invalid exercise id' });
     }
@@ -2109,7 +2597,21 @@ export async function WorkoutModelSessionUpdater(req, res)
       return res.status(404).json({message: 'Session not found'});
     }
 
-    const update = session.progress.find(p => p.exercise.toString() === exerciseId);
+    let update = null;
+    if (hasProgressIndex)
+    {
+      update = session.progress[progressIndex] || null;
+
+      if (update && hasExerciseId && update.exercise.toString() !== exerciseId)
+      {
+        return res.status(400).json({ message: 'exerciseId does not match progressIndex' });
+      }
+    }
+
+    if (!update && hasExerciseId)
+    {
+      update = session.progress.find(p => p.exercise.toString() === exerciseId && !p.completed) || null;
+    }
 
     if (!update)
     {
@@ -2137,21 +2639,30 @@ export async function WorkoutModelSessionEnder(req, res)
 {
   try
   {
-    const { id } = req.params;
+    const { id, sessionId } = req.params;
 
     if (!mongoose.isValidObjectId(id))
     {
       return res.status(400).json({ message: 'Invalid user id' });
     }
 
-    const session = await ActiveWorkoutModelSession.findOne({ userId: id });
+    if (!mongoose.isValidObjectId(sessionId))
+    {
+      return res.status(400).json({ message: 'Invalid session id' });
+    }
+
+    const session = await ActiveWorkoutModelSession.findOne({ _id: sessionId, userId: id });
     if (!session)
     {
       return res.status(404).json({message: 'Session not found'});
     }
 
     const endTime = new Date();
-    const totalTime = Math.round((endTime - session.startTime) / 1000);
+    const parsedStartTime = new Date(session.startTime);
+    const hasValidStartTime = !Number.isNaN(parsedStartTime.getTime());
+    const totalTime = hasValidStartTime
+      ? Math.max(0, Math.round((endTime.getTime() - parsedStartTime.getTime()) / 1000))
+      : 0;
 
     const completedWorkouts = session.progress.filter(p => p.completed);
     const allDone = completedWorkouts.length === session.progress.length;
@@ -2160,7 +2671,7 @@ export async function WorkoutModelSessionEnder(req, res)
       {
         userId: id,
         modelId: session.modelId,
-        startTime: session.startTime,
+        startTime: hasValidStartTime ? parsedStartTime : endTime,
         endTime,
         totalTime,
         workouts: completedWorkouts.map(p => 
@@ -2173,6 +2684,44 @@ export async function WorkoutModelSessionEnder(req, res)
         }))
       }
     )
+
+    const user = await Users.findById(id).select('profile.weight goals.calorieGoal');
+    const userWeight = Number(user?.profile?.weight);
+    const weightForCalories = Number.isFinite(userWeight) && userWeight >= 10 ? userWeight : 70;
+
+    const exerciseIds = completedWorkouts
+      .map((entry) => String(entry.exercise))
+      .filter(Boolean);
+    const exerciseDocs = await Workout.find({ _id: { $in: exerciseIds } }).select('_id title met');
+    const metByExerciseId = new Map(exerciseDocs.map((exerciseDoc) => [String(exerciseDoc._id), exerciseDoc]));
+
+    const burnedCaloriesRaw = completedWorkouts.reduce((sum, completedEntry) => {
+      const exerciseDoc = metByExerciseId.get(String(completedEntry.exercise));
+      const met = Number(exerciseDoc?.met);
+      const seconds = Number(completedEntry.timeTaken) || 0;
+
+      if (!Number.isFinite(met) || met <= 0 || seconds <= 0) {
+        return sum;
+      }
+
+      return sum + (met * weightForCalories * (seconds / 3600));
+    }, 0);
+
+    const burnedCalories = Math.max(0, Math.round(burnedCaloriesRaw));
+    const burnGoal = Number(user?.goals?.calorieGoal);
+    const normalizedBurnGoal = Number.isFinite(burnGoal) && burnGoal > 0 ? burnGoal : 1;
+    const durationMinutes = Math.max(1, Math.round(totalTime / 60));
+
+    await CalorieTracker.create({
+      userId: id,
+      weight: weightForCalories,
+      goal: normalizedBurnGoal,
+      workout: 'workout-session',
+      duration: durationMinutes,
+      calories: burnedCalories,
+      goalmet: burnedCalories >= normalizedBurnGoal,
+      date: endTime,
+    });
     
     await ActiveWorkoutModelSession.findByIdAndDelete(session._id);
 
@@ -2180,6 +2729,7 @@ export async function WorkoutModelSessionEnder(req, res)
       message: allDone ? 'Workout Model completed and saved to history' : 'Workout session ended early and saved to history',
       completed: allDone, exercisesCompleted: completedWorkouts.length,
       exercisesTotal: session.progress.length,
+      caloriesBurned: burnedCalories,
     });
   }
   catch (error)
