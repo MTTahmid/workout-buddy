@@ -88,6 +88,24 @@ export default function SideDrawer({ visible, onClose }: Props) {
         <TouchableOpacity
           onPress={() => {
             onClose();
+            router.push(`/workout-models?id=${USER_ID}`);
+          }}
+        >
+          <Text style={styles.drawerItem}>Workout Models</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          onPress={() => {
+            onClose();
+            router.push(`/calorie-tracker?id=${USER_ID}`);
+          }}
+        >
+          <Text style={styles.drawerItem}>Calorie Tracker</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          onPress={() => {
+            onClose();
             router.push(`/history?id=${USER_ID}`);
           }}
         >
