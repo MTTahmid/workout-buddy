@@ -85,28 +85,44 @@ export default function WorkoutModels() {
     }
   };
 
+  const performEndActiveSession = async () => {
+    const sessionId = activeSession?._id;
+    if (!sessionId) {
+      setActiveSession(null);
+      return;
+    }
+
+    setEndingSession(true);
+    try {
+      const res = await fetch(
+        `${API_BASE_URL}/user/${userId}/active-workout-model-session/end/${sessionId}`,
+        { method: "DELETE" }
+      );
+      const data = await res.json().catch(() => ({}));
+
+      if (res.ok) {
+        setActiveSession(null);
+        await checkActiveSession();
+      } else {
+        const message = data?.message || "Failed to end session.";
+        const alreadyEnded = res.status === 404 && /session not found/i.test(message);
+
+        if (alreadyEnded) {
+          setActiveSession(null);
+          return;
+        }
+
+        Alert.alert("Error", message);
+      }
+    } catch {
+      Alert.alert("Error", "Failed to end session.");
+    } finally {
+      setEndingSession(false);
+    }
+  };
+
   const handleEndActiveSession = () => {
-    Alert.alert("End Session", "End your current workout session?", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "End",
-        style: "destructive",
-        onPress: async () => {
-          setEndingSession(true);
-          try {
-            await fetch(
-              `${API_BASE_URL}/user/${userId}/active-workout-model-session/end`,
-              { method: "DELETE" }
-            );
-            setActiveSession(null);
-          } catch {
-            Alert.alert("Error", "Failed to end session.");
-          } finally {
-            setEndingSession(false);
-          }
-        },
-      },
-    ]);
+    void performEndActiveSession();
   };
 
   const fetchModels = async () => {

@@ -5,7 +5,6 @@ import {
   StyleSheet,
   TouchableOpacity,
   ScrollView,
-  TextInput,
   Alert,
   ActivityIndicator,
 } from "react-native";
@@ -29,6 +28,23 @@ type SessionData = {
   progress: ProgressEntry[];
 };
 
+function findFirstIncomplete(progress: ProgressEntry[], startIndex = 0) {
+  for (let index = startIndex; index < progress.length; index += 1) {
+    if (!progress[index]?.completed) {
+      return index;
+    }
+  }
+
+  return -1;
+}
+
+function formatSeconds(totalSeconds: number) {
+  const safe = Math.max(0, Math.floor(totalSeconds));
+  const minutes = Math.floor(safe / 60);
+  const seconds = safe % 60;
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
 export default function WorkoutSession() {
   const router = useRouter();
   const params = useLocalSearchParams();
@@ -36,13 +52,59 @@ export default function WorkoutSession() {
 
   const [session, setSession] = useState<SessionData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [timeInputs, setTimeInputs] = useState<Record<number, string>>({});
-  const [updating, setUpdating] = useState<number | null>(null);
+  const [updatingIndex, setUpdatingIndex] = useState<number | null>(null);
   const [ending, setEnding] = useState(false);
+  const [activeIndex, setActiveIndex] = useState<number>(-1);
+  const [exerciseElapsed, setExerciseElapsed] = useState(0);
+  const [exerciseStartAt, setExerciseStartAt] = useState<number | null>(null);
+  const [isResting, setIsResting] = useState(false);
+  const [restRemaining, setRestRemaining] = useState(0);
+  const [pendingNextIndex, setPendingNextIndex] = useState<number | null>(null);
 
   useEffect(() => {
     fetchSession();
   }, []);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (isResting) {
+        setRestRemaining((previous) => {
+          if (previous <= 1) {
+            setIsResting(false);
+
+            if (
+              pendingNextIndex !== null
+              && session
+              && pendingNextIndex >= 0
+              && pendingNextIndex < session.progress.length
+            ) {
+              setActiveIndex(pendingNextIndex);
+              setExerciseElapsed(0);
+              setExerciseStartAt(Date.now());
+            } else {
+              setActiveIndex(-1);
+              setExerciseElapsed(0);
+              setExerciseStartAt(null);
+            }
+
+            setPendingNextIndex(null);
+            return 0;
+          }
+
+          return previous - 1;
+        });
+
+        return;
+      }
+
+      if (activeIndex >= 0 && exerciseStartAt) {
+        const elapsedSeconds = Math.max(1, Math.floor((Date.now() - exerciseStartAt) / 1000));
+        setExerciseElapsed(elapsedSeconds);
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [activeIndex, exerciseStartAt, isResting, pendingNextIndex, session]);
 
   const fetchSession = async () => {
     setLoading(true);
@@ -52,24 +114,31 @@ export default function WorkoutSession() {
       );
       if (res.ok) {
         const data = await res.json();
-        // Could be data.session or data directly
         const s = data.session || data;
         setSession(s);
-        // Pre-fill time inputs for completed exercises
-        if (s?.progress) {
-          const prefilled: Record<number, string> = {};
-          s.progress.forEach((p: ProgressEntry, i: number) => {
-            if (p.timeTaken != null) {
-              prefilled[i] = String(p.timeTaken);
-            }
-          });
-          setTimeInputs(prefilled);
+
+        if (Array.isArray(s?.progress)) {
+          const firstIncomplete = findFirstIncomplete(s.progress);
+          setActiveIndex(firstIncomplete);
+          setIsResting(false);
+          setRestRemaining(0);
+          setPendingNextIndex(null);
+
+          if (firstIncomplete >= 0) {
+            setExerciseElapsed(0);
+            setExerciseStartAt(Date.now());
+          } else {
+            setExerciseElapsed(0);
+            setExerciseStartAt(null);
+          }
         }
       } else {
         setSession(null);
+        setActiveIndex(-1);
       }
     } catch {
       setSession(null);
+      setActiveIndex(-1);
     } finally {
       setLoading(false);
     }
@@ -86,16 +155,19 @@ export default function WorkoutSession() {
     return exercise as string;
   };
 
-  const handleComplete = async (index: number) => {
-    if (!session) return;
-    const entry = session.progress[index];
-    const time = parseInt(timeInputs[index] || "0");
-    if (!time || time < 1) {
-      Alert.alert("Time Required", "Enter the time taken (in seconds).");
+  const completeCurrentExercise = async () => {
+    if (!session || isResting || activeIndex < 0) {
       return;
     }
 
-    setUpdating(index);
+    const entry = session.progress[activeIndex];
+    if (!entry || entry.completed) {
+      return;
+    }
+
+    const timeTaken = Math.max(1, exerciseElapsed);
+
+    setUpdatingIndex(activeIndex);
     try {
       const res = await fetch(
         `${API_BASE_URL}/user/${userId}/active-workout-model-session/update`,
@@ -104,12 +176,42 @@ export default function WorkoutSession() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             exerciseId: getExerciseId(entry.exercise),
-            timeTaken: time,
+            progressIndex: activeIndex,
+            timeTaken,
           }),
         }
       );
       if (res.ok) {
-        fetchSession();
+        const updatedProgress = session.progress.map((progressEntry, index) => (
+          index === activeIndex
+            ? { ...progressEntry, completed: true, timeTaken }
+            : progressEntry
+        ));
+
+        setSession({ ...session, progress: updatedProgress });
+
+        const nextIndex = findFirstIncomplete(updatedProgress, activeIndex + 1);
+        if (nextIndex === -1) {
+          setActiveIndex(-1);
+          setExerciseStartAt(null);
+          setExerciseElapsed(0);
+          setPendingNextIndex(null);
+          setIsResting(false);
+          setRestRemaining(0);
+        } else {
+          const restSeconds = Math.max(0, Number(entry.rest) || 0);
+          if (restSeconds > 0) {
+            setIsResting(true);
+            setRestRemaining(restSeconds);
+            setPendingNextIndex(nextIndex);
+            setExerciseStartAt(null);
+            setExerciseElapsed(0);
+          } else {
+            setActiveIndex(nextIndex);
+            setExerciseStartAt(Date.now());
+            setExerciseElapsed(0);
+          }
+        }
       } else {
         const data = await res.json();
         Alert.alert("Error", data.message || "Failed to update.");
@@ -117,47 +219,47 @@ export default function WorkoutSession() {
     } catch {
       Alert.alert("Error", "Something went wrong.");
     } finally {
-      setUpdating(null);
+      setUpdatingIndex(null);
     }
   };
 
-  const handleEndSession = async () => {
-    Alert.alert("End Session", "End your current workout session?", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "End",
-        style: "destructive",
-        onPress: async () => {
-          setEnding(true);
-          try {
-            const res = await fetch(
-              `${API_BASE_URL}/user/${userId}/active-workout-model-session/end`,
-              { method: "DELETE" }
-            );
-            const data = await res.json();
-            if (res.ok) {
-              Alert.alert(
-                "Session Ended",
-                data.message || "Workout saved to history!",
-                [
-                  {
-                    text: "OK",
-                    onPress: () =>
-                      router.replace(`/workout-models?id=${userId}`),
-                  },
-                ]
-              );
-            } else {
-              Alert.alert("Error", data.message || "Failed to end session.");
-            }
-          } catch {
-            Alert.alert("Error", "Something went wrong.");
-          } finally {
-            setEnding(false);
-          }
-        },
-      },
-    ]);
+  const performEndSession = async () => {
+    const sessionId = session?._id;
+    if (!sessionId) {
+      router.replace(`/workout-models?id=${userId}`);
+      return;
+    }
+
+    setEnding(true);
+    try {
+      const res = await fetch(
+        `${API_BASE_URL}/user/${userId}/active-workout-model-session/end/${sessionId}`,
+        { method: "DELETE" }
+      );
+      const data = await res.json().catch(() => ({}));
+
+      if (res.ok) {
+        router.replace(`/workout-models?id=${userId}`);
+      } else {
+        const message = data?.message || "Failed to end session.";
+        const alreadyEnded = res.status === 404 && /session not found/i.test(message);
+
+        if (alreadyEnded) {
+          router.replace(`/workout-models?id=${userId}`);
+          return;
+        }
+
+        Alert.alert("Error", message);
+      }
+    } catch {
+      Alert.alert("Error", "Something went wrong.");
+    } finally {
+      setEnding(false);
+    }
+  };
+
+  const handleEndSession = () => {
+    void performEndSession();
   };
 
   const getModelName = () => {
@@ -169,6 +271,15 @@ export default function WorkoutSession() {
 
   const completedCount = session?.progress?.filter((p) => p.completed).length || 0;
   const totalCount = session?.progress?.length || 0;
+  const currentEntry =
+    session && activeIndex >= 0 && activeIndex < session.progress.length
+      ? session.progress[activeIndex]
+      : null;
+  const upcomingIndex = pendingNextIndex ?? (session ? findFirstIncomplete(session.progress, activeIndex + 1) : -1);
+  const upcomingEntry =
+    session && upcomingIndex >= 0 && upcomingIndex < session.progress.length
+      ? session.progress[upcomingIndex]
+      : null;
 
   const getElapsedTime = () => {
     if (!session?.startTime) return "";
@@ -243,68 +354,65 @@ export default function WorkoutSession() {
       </View>
 
       <ScrollView style={styles.list} showsVerticalScrollIndicator={false}>
-        {session.progress.map((entry, index) => (
-          <View
-            key={index}
-            style={[styles.card, entry.completed && styles.cardCompleted]}
-          >
-            <View style={styles.cardTop}>
-              <View style={{ flex: 1 }}>
-                <Text
-                  style={[
-                    styles.exerciseName,
-                    entry.completed && styles.exerciseNameDone,
-                  ]}
-                >
-                  {getExerciseName(entry.exercise)}
-                </Text>
-                <Text style={styles.exerciseDetail}>
-                  {entry.sets}×{entry.reps} · {entry.rest}s rest
+        {completedCount === totalCount ? (
+          <View style={styles.currentCard}>
+            <Text style={styles.currentLabel}>Session Complete</Text>
+            <Text style={styles.currentExercise}>All exercises are done.</Text>
+            <Text style={styles.currentMeta}>Tap End Session to save it.</Text>
+          </View>
+        ) : isResting ? (
+          <View style={styles.currentCard}>
+            <Text style={styles.currentLabel}>Rest Interval</Text>
+            <Text style={styles.restCountdown}>{formatSeconds(restRemaining)}</Text>
+            <Text style={styles.currentMeta}>Next exercise starts automatically.</Text>
+            {upcomingEntry && (
+              <View style={styles.nextBlock}>
+                <Text style={styles.nextTitle}>Up Next</Text>
+                <Text style={styles.nextExercise}>{getExerciseName(upcomingEntry.exercise)}</Text>
+                <Text style={styles.nextMeta}>
+                  {upcomingEntry.sets}×{upcomingEntry.reps} · {upcomingEntry.rest}s rest
                 </Text>
               </View>
-              {entry.completed && (
-                <View style={styles.checkBadge}>
-                  <Text style={styles.checkText}>✓</Text>
-                </View>
-              )}
-            </View>
-
-            {!entry.completed && (
-              <View style={styles.completeRow}>
-                <View style={styles.timeInputWrapper}>
-                  <TextInput
-                    style={styles.timeInput}
-                    placeholder="Time (s)"
-                    placeholderTextColor="#666"
-                    keyboardType="numeric"
-                    value={timeInputs[index] || ""}
-                    onChangeText={(v) =>
-                      setTimeInputs({ ...timeInputs, [index]: v })
-                    }
-                  />
-                </View>
-                <TouchableOpacity
-                  style={[
-                    styles.completeBtn,
-                    updating === index && { opacity: 0.6 },
-                  ]}
-                  onPress={() => handleComplete(index)}
-                  disabled={updating === index}
-                >
-                  <Text style={styles.completeBtnText}>
-                    {updating === index ? "..." : "Done"}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            )}
-
-            {entry.completed && entry.timeTaken != null && (
-              <Text style={styles.timeTakenText}>
-                Completed in {entry.timeTaken}s
-              </Text>
             )}
           </View>
-        ))}
+        ) : currentEntry ? (
+          <View style={styles.currentCard}>
+            <Text style={styles.currentLabel}>Current Exercise</Text>
+            <Text style={styles.currentExercise}>{getExerciseName(currentEntry.exercise)}</Text>
+            <Text style={styles.currentMeta}>
+              {currentEntry.sets}×{currentEntry.reps} · {currentEntry.rest}s rest after completion
+            </Text>
+            <Text style={styles.exerciseTimer}>{formatSeconds(exerciseElapsed)}</Text>
+            <TouchableOpacity
+              style={[
+                styles.completeBtn,
+                updatingIndex === activeIndex && { opacity: 0.6 },
+              ]}
+              onPress={completeCurrentExercise}
+              disabled={updatingIndex === activeIndex}
+            >
+              <Text style={styles.completeBtnText}>
+                {updatingIndex === activeIndex ? "Saving..." : "Mark Exercise Done"}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
+
+        <View style={styles.sectionBlock}>
+          <Text style={styles.sectionTitle}>Completed Exercises</Text>
+          {session.progress.filter((entry) => entry.completed).length === 0 ? (
+            <Text style={styles.emptySectionText}>No exercises completed yet.</Text>
+          ) : (
+            session.progress
+              .filter((entry) => entry.completed)
+              .map((entry, index) => (
+                <View key={`${index}-${getExerciseName(entry.exercise)}`} style={styles.completedRow}>
+                  <Text style={styles.completedName}>{getExerciseName(entry.exercise)}</Text>
+                  <Text style={styles.completedTime}>{formatSeconds(entry.timeTaken || 0)}</Text>
+                </View>
+              ))
+          )}
+        </View>
 
         <View style={{ height: 100 }} />
       </ScrollView>
@@ -389,78 +497,116 @@ const styles = StyleSheet.create({
   list: {
     flex: 1,
   },
-  card: {
+  currentCard: {
     backgroundColor: "#1a1a1a",
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
+    borderRadius: 14,
+    padding: 20,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: "#2f2f2f",
   },
-  cardCompleted: {
-    borderLeftWidth: 3,
-    borderLeftColor: "#39d2b4",
+  currentLabel: {
+    color: "#39d2b4",
+    fontSize: 13,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 0.8,
+    marginBottom: 8,
   },
-  cardTop: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  exerciseName: {
+  currentExercise: {
     color: "#fff",
-    fontSize: 17,
-    fontWeight: "600",
+    fontSize: 24,
+    fontWeight: "700",
   },
-  exerciseNameDone: {
-    color: "#888",
-  },
-  exerciseDetail: {
-    color: "#999",
+  currentMeta: {
+    color: "#9a9a9a",
     fontSize: 14,
+    marginTop: 8,
+  },
+  exerciseTimer: {
+    color: "#fff",
+    fontSize: 42,
+    fontWeight: "800",
+    marginTop: 18,
+    marginBottom: 18,
+    letterSpacing: 1,
+  },
+  restCountdown: {
+    color: "#39d2b4",
+    fontSize: 48,
+    fontWeight: "800",
+    marginVertical: 10,
+    letterSpacing: 1,
+  },
+  nextBlock: {
+    marginTop: 16,
+    paddingTop: 12,
+    borderTopColor: "#2a2a2a",
+    borderTopWidth: 1,
+  },
+  nextTitle: {
+    color: "#888",
+    fontSize: 12,
+    textTransform: "uppercase",
+    letterSpacing: 0.8,
+  },
+  nextExercise: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "700",
+    marginTop: 4,
+  },
+  nextMeta: {
+    color: "#999",
+    fontSize: 13,
     marginTop: 2,
   },
-  checkBadge: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+  completeBtn: {
     backgroundColor: "#39d2b4",
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 10,
     alignItems: "center",
-    justifyContent: "center",
   },
-  checkText: {
+  completeBtnText: {
     color: "#000",
     fontSize: 16,
     fontWeight: "700",
   },
-
-  completeRow: {
-    flexDirection: "row",
-    marginTop: 14,
-    gap: 10,
-    alignItems: "center",
+  sectionBlock: {
+    backgroundColor: "#121212",
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 12,
   },
-  timeInputWrapper: {
-    flex: 1,
-  },
-  timeInput: {
-    backgroundColor: "#2a2a2a",
+  sectionTitle: {
     color: "#fff",
-    fontSize: 15,
-    padding: 10,
-    borderRadius: 8,
-  },
-  completeBtn: {
-    backgroundColor: "#39d2b4",
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 8,
-  },
-  completeBtnText: {
-    color: "#000",
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: "700",
+    marginBottom: 10,
   },
-  timeTakenText: {
+  emptySectionText: {
+    color: "#777",
+    fontSize: 13,
+  },
+  completedRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 8,
+    borderBottomColor: "#242424",
+    borderBottomWidth: 1,
+  },
+  completedName: {
+    color: "#d5d5d5",
+    fontSize: 14,
+    flex: 1,
+    paddingRight: 8,
+  },
+  completedTime: {
     color: "#666",
     fontSize: 13,
-    marginTop: 8,
+    fontWeight: "700",
   },
 
   endBtn: {
