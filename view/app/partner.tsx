@@ -17,7 +17,7 @@ export default function Partner() {
   const params = useLocalSearchParams();
   const userId = (params.id as string) || USER_ID;
   const [pairingCode, setPairingCode] = useState("");
-  const [partnerCode, setPartnerCode] = useState("");
+  const [partnerCode, setPartnerCode] = useState((params.code as string) || "");
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
