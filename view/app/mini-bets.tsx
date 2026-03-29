@@ -140,18 +140,24 @@ export default function MiniBets() {
     if (result.canceled || !result.assets?.[0]) return;
 
     const asset = result.assets[0];
-    const formData = new FormData();
-    formData.append("proof", {
-      uri: asset.uri,
-      name: asset.uri.split("/").pop() || "proof.jpg",
-      type: asset.mimeType || "image/jpeg",
-    } as any);
-
+    
     try {
+      // Fetch the image as a blob
+      const response = await fetch(asset.uri);
+      const blob = await response.blob();
+      
+      // Create FormData with the blob
+      const formData = new FormData();
+      formData.append("proof", blob, asset.uri.split("/").pop() || "proof.jpg");
+
       const res = await fetch(
         `${API_BASE_URL}/user/${userId}/challenges/${challengeId}/proof`,
-        { method: "POST", body: formData }
+        { 
+          method: "POST", 
+          body: formData,
+        }
       );
+      
       if (!res.ok) {
         const err = await res.json().catch(() => null);
         Alert.alert("Upload failed", err?.message || "Something went wrong.");
@@ -160,6 +166,7 @@ export default function MiniBets() {
       Alert.alert("Done!", "Proof submitted & auto-approved. Points earned!");
       fetchChallenges();
     } catch (e) {
+      console.error("Error submitting proof:", e);
       Alert.alert("Error", "Could not connect to server.");
     }
   };
