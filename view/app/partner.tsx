@@ -19,6 +19,8 @@ export default function Partner() {
   const [pairingCode, setPairingCode] = useState("");
   const [partnerCode, setPartnerCode] = useState((params.code as string) || "");
   const [loading, setLoading] = useState(true);
+  const [pairing, setPairing] = useState(false);
+  const [error, setError] = useState("");
 
   useEffect(() => {
     const fetchPairingCode = async () => {
@@ -38,8 +40,33 @@ export default function Partner() {
     fetchPairingCode();
   }, [userId]);
 
-  const handlePairWithBuddy = () => {
-    router.push(`/dashboard?id=${userId}`);
+  const handlePairWithBuddy = async () => {
+    if (!partnerCode.trim()) {
+      setError("Please enter your partner's code");
+      return;
+    }
+
+    setPairing(true);
+    setError("");
+
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/user/${userId}/buddy/${partnerCode.trim().toUpperCase()}`,
+        { method: "PUT" }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || "Failed to pair with buddy");
+      }
+
+      // Pairing successful, navigate to dashboard
+      router.push(`/dashboard?id=${userId}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "An error occurred");
+    } finally {
+      setPairing(false);
+    }
   };
 
   return (
@@ -70,14 +97,22 @@ export default function Partner() {
         placeholder="Enter code here"
         placeholderTextColor="#666"
         value={partnerCode}
-        onChangeText={setPartnerCode}
+        onChangeText={(text) => {
+          setPartnerCode(text);
+          setError("");
+        }}
       />
 
+      {error && <Text style={styles.errorText}>{error}</Text>}
+
       <TouchableOpacity
-        style={styles.shareButton}
+        style={[styles.shareButton, pairing && styles.shareButtonDisabled]}
         onPress={handlePairWithBuddy}
+        disabled={pairing}
       >
-        <Text style={styles.shareText}>Pair with partner</Text>
+        <Text style={styles.shareText}>
+          {pairing ? "Pairing..." : "Pair with partner"}
+        </Text>
       </TouchableOpacity>
     </View>
   );
@@ -136,9 +171,19 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginTop: 20,
   },
+  shareButtonDisabled: {
+    backgroundColor: "#999",
+    opacity: 0.6,
+  },
   shareText: {
     color: "#000",
     fontWeight: "600",
     fontSize: 16,
+  },
+  errorText: {
+    color: "#ff6b6b",
+    fontSize: 14,
+    marginBottom: 10,
+    textAlign: "center",
   },
 });

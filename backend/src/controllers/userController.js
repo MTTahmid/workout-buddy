@@ -1071,9 +1071,11 @@ async function autoRejectExpiredChallenge(challenge, now = new Date()) {
 
   if (isExpirableStatus && hasDeadline && now > challenge.deadline) {
     challenge.status = 'rejected';
-    challenge.proof.verifiedAt = now;
-    challenge.proof.verifiedBy = null;
-    challenge.proof.verificationNote = 'Auto-rejected: deadline passed';
+    if (challenge.proof) {
+      challenge.proof.verifiedAt = now;
+      challenge.proof.verifiedBy = null;
+      challenge.proof.verificationNote = 'Auto-rejected: deadline passed';
+    }
     await challenge.save();
   }
 
@@ -1089,6 +1091,7 @@ export async function submitBuddyChallengeProof(req, res) {
     }
 
     if (!req.file) {
+      console.error('No file in request. req.file:', req.file);
       return res.status(400).json({ message: 'Proof image is required' });
     }
 
@@ -1194,7 +1197,8 @@ export async function submitBuddyChallengeProof(req, res) {
       proofUrl: `/user/${id}/challenges/${challenge._id}/proof`,
     });
   } catch (error) {
-    console.error('submitBuddyChallengeProof error:', error);
+    console.error('submitBuddyChallengeProof error:', error.message || error);
+    console.error('Stack trace:', error.stack);
     return res.status(500).json({ message: 'Failed to submit challenge proof' });
   }
 }
