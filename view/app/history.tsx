@@ -1,8 +1,46 @@
+import React, { useEffect, useState } from "react";
 import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
-import { useRouter } from "expo-router";
+import { useRouter, useLocalSearchParams } from "expo-router";
+import { USER_ID } from "@/constants/user";
+import { API_BASE_URL } from "@/constants/api";
 
 export default function History() {
   const router = useRouter();
+  const params = useLocalSearchParams();
+  const userId = (params.id as string) || USER_ID;
+  const [streak, setStreak] = useState(0);
+  const [totalWorkouts, setTotalWorkouts] = useState(0);
+
+  useEffect(() => {
+    const fetchHistory = async () => {
+      try {
+        const goalsRes = await fetch(
+          `${API_BASE_URL}/user/${userId}/weekly-goals`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({}),
+          }
+        );
+        if (!goalsRes.ok) return;
+        const goalsData = await goalsRes.json();
+        const goalId = goalsData?.weeklyGoal?._id;
+        if (!goalId) return;
+
+        const detailsRes = await fetch(
+          `${API_BASE_URL}/user/${userId}/weekly-goals/${goalId}/details`
+        );
+        if (!detailsRes.ok) return;
+        const details = await detailsRes.json();
+
+        setStreak(details?.weeklyGoal?.combined_streak || 0);
+        setTotalWorkouts(details?.userStreak?.uploadCount || 0);
+      } catch (e) {
+        console.error("Failed to fetch history:", e);
+      }
+    };
+    fetchHistory();
+  }, [userId]);
 
   return (
     <View style={styles.container}>
@@ -15,13 +53,13 @@ export default function History() {
       <View style={styles.cardRow}>
         <View style={styles.streakCard}>
           <Text style={styles.cardLabel}>🔥 STREAK</Text>
-          <Text style={styles.bigNumber}>0</Text>
+          <Text style={styles.bigNumber}>{streak}</Text>
           <Text style={styles.smallText}>weeks</Text>
         </View>
 
         <View style={styles.totalCard}>
           <Text style={styles.cardLabel}>🏆 TOTAL</Text>
-          <Text style={styles.bigNumber}>0</Text>
+          <Text style={styles.bigNumber}>{totalWorkouts}</Text>
           <Text style={styles.smallText}>Workouts logged</Text>
         </View>
       </View>

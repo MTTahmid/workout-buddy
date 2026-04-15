@@ -1,11 +1,32 @@
-import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
+import { View, Text, StyleSheet, TouchableOpacity, Share, Alert } from "react-native";
+import React from "react";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { useState } from "react";
 import SideDrawer from "./SideDrawer";
+import { USER_ID } from "@/constants/user";
+import { API_BASE_URL } from "@/constants/api";
 export default function Home() {
   const router = useRouter();
   const [drawerOpen, setDrawerOpen] = useState(false);
+
+  const handleInvitePartner = async () => {
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/user/${USER_ID}/pairing-code`
+      );
+      const data = await response.json();
+      const code = data.pairingCode || "";
+
+      const link = `workoutbuddy:///partner?id=${USER_ID}&code=${code}`;
+
+      await Share.share({
+        message: `Join me on Workout Buddy! Use my pairing code: ${code}\n\nOr tap this link to pair automatically:\n${link}`,
+      });
+    } catch (error) {
+      Alert.alert("Error", "Could not share invite. Please try again.");
+    }
+  };
 
   return (
     <View style={{ flex: 1 }}>
@@ -30,7 +51,7 @@ export default function Home() {
         <Text style={styles.title}>Start Your Journey</Text>
 
         {/* MAIN BUTTON */}
-        <TouchableOpacity style={styles.primaryButton}>
+        <TouchableOpacity style={styles.primaryButton} onPress={handleInvitePartner}>
           <Text style={styles.primaryText}>Invite Partner</Text>
         </TouchableOpacity>
 
@@ -42,7 +63,7 @@ export default function Home() {
         </View>
 
         {/* LINK */}
-        <TouchableOpacity onPress={() => router.push("/partner")}>
+        <TouchableOpacity onPress={() => router.push(`/partner?id=${USER_ID}`)}>
           <Text style={styles.linkText}>
             Enter an invite code to pair
           </Text>

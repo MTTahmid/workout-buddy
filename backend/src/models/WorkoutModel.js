@@ -4,7 +4,7 @@ const WorkoutModelSchema = new mongoose.Schema(
     {
         userId:    { type: mongoose.Schema.Types.ObjectId, ref: 'User'},
         category: { type: String, required: true, trim: true },
-        title: { type: String, required: true, trim: true, unique: true },
+        title: { type: String, required: true, trim: true},
         workouts:
         [
             {

@@ -23,8 +23,8 @@ const userSchema = new mongoose.Schema({
     points: Number
   },
   streak: {
-    current: Number,
-    lastWorkoutDate: Date
+    current: { type: Number, default: 0 },
+    lastWorkoutDate: { type: Date, default: null }
   },
   buddies: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
   habits: [{ name: String, completedDates: [Date] }],
