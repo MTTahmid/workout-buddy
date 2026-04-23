@@ -10,6 +10,7 @@ import WorkoutModel from '../models/WorkoutModel.js';
 import ActiveWorkoutModelSession from '../models/ActiveWorkoutModelSession.js';
 import WMCompletionHistory from '../models/WMCompletionHistory.js';
 import UserFitness from '../models/UserFitness.js';
+import StepTracker from '../models/StepTracker.js';
 import {
   getProofDownloadStream,
   uploadProofToGridFS,
@@ -27,6 +28,7 @@ const ALLOWED_STAKES = [
 const DEFAULT_WEEKLY_GOAL = 3;
 const DEFAULT_WEEKLY_STAKE = '1 Dinner';
 
+//replace this by making calorieCalc access the workout table
 const ALLOWED_WORKOUTS = {
   pushup:  { met: 3.8 },
   pullup:  { met: 4.0 },
@@ -1827,6 +1829,8 @@ export async function CalorieLogger(req, res)
     return res.status(500).json({ message: 'Failed to log calories' });
   }
 }
+
+//Update this to be more generalized and use the workout table
 function calorieCalc(workout, duration, weight)
 {
   const { met } = ALLOWED_WORKOUTS[workout];
@@ -3077,33 +3081,33 @@ export async function FitnessUpdater(req, res)
       {
         $set:
         {
-          cardioEndurance: newCardioEndurance,
-          cardioRecovery: newCardioRecovery,
-          cardioConsistency: newCardioConsistency,
-          cardioLevel: newCardioLevel,
-          cardioGoal: newCardioGoal,
+          cardioEndurance:        newCardioEndurance,
+          cardioRecovery:         newCardioRecovery,
+          cardioConsistency:      newCardioConsistency,
+          cardioLevel:            newCardioLevel,
+          cardioGoal:             newCardioGoal,
           cardioGoalUserAdjusted: !!cardioGoal,
  
-          strengthUpperBody: newStrengthUpperBody,
-          strengthLowerBody: newStrengthLowerBody,
-          strengthCore: newStrengthCore,
-          strengthLevel: newStrengthLevel,
-          strengthGoal: newStrengthGoal,
+          strengthUpperBody:        newStrengthUpperBody,
+          strengthLowerBody:        newStrengthLowerBody,
+          strengthCore:             newStrengthCore,
+          strengthLevel:            newStrengthLevel,
+          strengthGoal:             newStrengthGoal,
           strengthGoalUserAdjusted: !!strengthGoal,
  
-          flexibilityUpperBody: newFlexibilityUpperBody,
-          flexibilityLowerBody: newFlexibilityLowerBody,
-          flexibilitySpinalMobility: newFlexibilitySpinalMobility,
-          flexibilityLevel: newFlexibilityLevel,
-          flexibilityGoal: newFlexibilityGoal,
+          flexibilityUpperBody:        newFlexibilityUpperBody,
+          flexibilityLowerBody:        newFlexibilityLowerBody,
+          flexibilitySpinalMobility:   newFlexibilitySpinalMobility,
+          flexibilityLevel:            newFlexibilityLevel,
+          flexibilityGoal:             newFlexibilityGoal,
           flexibilityGoalUserAdjusted: !!flexibilityGoal,
  
-          cardioWeight: newCardioWeight,
-          strengthWeight: newStrengthWeight,
+          cardioWeight:      newCardioWeight,
+          strengthWeight:    newStrengthWeight,
           flexibilityWeight: newFlexibilityWeight,
  
-          overallLevel: newOverallLevel,
-          targetFitness: newTargetFitness,
+          overallLevel:       newOverallLevel,
+          targetFitness:      newTargetFitness,
           targetUserAdjusted: !!targetFitness,
  
           cardioGRValue:      newCardioGR.value,
@@ -3327,7 +3331,7 @@ export async function AI_imageScan(req, res) {
     const formData = new FormData();
     const blob = new Blob([req.file.buffer], { type: req.file.mimetype });
     formData.append('file', blob, req.file.originalname);
-    
+
     const spoonacularResponse = await fetch(
       `${SPOONACULAR_API_URL}?apiKey=${apiKey}`,
       { method: "POST",
@@ -3350,4 +3354,251 @@ export async function AI_imageScan(req, res) {
     console.error('AI Image Scan error:', error);
     return res.status(500).json({ message: 'Failed to analyze image' });
   }
+}
+
+export async function getStepTracker(req, res)
+{
+  try
+  {
+    const { id } = req.params
+    const stepInfo = await StepTracker.findOne({userId: id});
+    if (!stepInfo)
+    {
+      stepInfo = await StepTracker.create(
+      {
+        userId: id,
+        startingDate: new Date(),
+      });
+    }
+    return res.status(200).json(stepInfo);
+  }
+  catch(error)
+  {
+    console.error('getStepTracker error:', error);
+    return res.status(500).json({ message: 'Failed to fetch step tracker' });
+  }
+}
+
+export async function updateStepGoal(req, res)
+{
+  try
+  {
+    const { id } = req.params;
+    const { dailyStepGoal, weeklyStepGoal } = req.body;
+    const tracker = await StepTracker.findOneAndUpdate(
+      { userId: id },
+      {
+        dailyStepGoal,
+        weeklyStepGoal
+      },
+      { new: true, upsert: true }
+    );
+    return res.status(200).json(tracker);
+  }
+  catch (error)
+  {
+    console.error('updateStepGoal error:', error);
+    return res.status(500).json({ message: 'Failed to update step goal' });
+  }
+}
+
+export async function logSteps(req, res) {
+  try {
+    const { id }    = req.params;
+    const { steps } = req.body;
+
+    const stepCount = Number(steps);
+    if (!Number.isFinite(stepCount) || stepCount < 0)
+      return res.status(400).json({ message: 'Invalid step count' });
+
+    const today = toMidnight(new Date());
+
+    let tracker = await StepTracker.findOne({ userId: id });
+    if (!tracker) {
+      tracker = await StepTracker.create({
+        userId:       id,
+        startingDate: today,
+      });
+    }
+
+    let todayEntry = tracker.dailyHistory.find(e => isSameDay(e.date, today));
+    const previousSteps = todayEntry?.steps ?? 0;
+
+    if (!todayEntry) {
+      tracker.dailyHistory.push({ date: today, steps: 0 });
+      todayEntry = tracker.dailyHistory[tracker.dailyHistory.length - 1];
+    }
+
+    todayEntry.steps          = stepCount;
+    todayEntry.distance       = calculateDistance(stepCount, tracker.strideLength);
+    todayEntry.caloriesBurned = 100;//fix calorieCalc
+    todayEntry.activeMinutes  = calculateActiveMin(stepCount);
+    todayEntry.goalMet        = stepCount >= tracker.dailyStepGoal;
+
+    const delta             = stepCount - previousSteps;
+    tracker.allTimeSteps    = (tracker.allTimeSteps ?? 0) + delta;
+
+    const daysSinceStart    = Math.max(1, daysBetween(tracker.startingDate, today) + 1);
+    tracker.avgDailySteps   = Math.round(tracker.allTimeSteps / daysSinceStart);
+    tracker.avgWeeklySteps  = Math.round(tracker.avgDailySteps * 7);
+
+    if (stepCount > (tracker.bestDailySteps ?? 0)) {
+      tracker.bestDailySteps = stepCount;
+      tracker.bestDailyDate  = today;
+    }
+
+    const weeklyTotal = weeklyStepsUpTo(tracker.dailyHistory, today);
+    if (weeklyTotal > (tracker.bestWeeklySteps ?? 0))
+      tracker.bestWeeklySteps = weeklyTotal;
+
+    tracker.weeklyGoalMet = weeklyTotal >= tracker.weeklyStepGoal;
+
+    const lastActive = tracker.lastActiveDate;
+
+    if (!lastActive || isSameDay(lastActive, today)) {
+      tracker.currentStreak = Math.max(tracker.currentStreak, 1);
+
+    } else {
+      const gap = daysBetween(lastActive, today);
+
+      if (gap === 1) {
+        tracker.currentStreak = (tracker.currentStreak ?? 0) + 1;
+      } else {
+        tracker.currentStreak = 1;
+      }
+    }
+
+    if (tracker.currentStreak > (tracker.longestStreak ?? 0))
+      tracker.longestStreak = tracker.currentStreak;
+
+    tracker.lastActiveDate = today;
+
+    await tracker.save();
+
+    return res.status(200).json({
+      message:       'Steps logged successfully',
+      today: {
+        steps:          todayEntry.steps,
+        distance:       todayEntry.distance,
+        caloriesBurned: todayEntry.caloriesBurned,
+        activeMinutes:  todayEntry.activeMinutes,
+        goalMet:        todayEntry.goalMet,
+      },
+      stats: {
+        allTimeSteps:   tracker.allTimeSteps,
+        avgDailySteps:  tracker.avgDailySteps,
+        avgWeeklySteps: tracker.avgWeeklySteps,
+        weeklyTotal,
+        weeklyGoalMet:  tracker.weeklyGoalMet,
+        currentStreak:  tracker.currentStreak,
+        longestStreak:  tracker.longestStreak,
+        bestDailySteps: tracker.bestDailySteps,
+        bestWeeklySteps:tracker.bestWeeklySteps,
+      },
+    });
+
+  } catch (error) {
+    console.error('logSteps error:', error);
+    return res.status(500).json({ message: 'Failed to log steps' });
+  }
+}
+export async function getStepHistory(req, res) {
+
+  try
+  {
+    const { id } = req.params;
+    const { range } = req.query;
+    const tracker = await StepTracker.findOne({ userId: id });
+    if (!tracker)
+    {
+      return res.status(404).json({ message: 'No tracker found' });
+    }
+
+    let history = tracker.dailyHistory;
+    const now = new Date();
+
+    if (range === 'week')
+    {
+        const startOfWeek = new Date(now);
+        startOfWeek.setDate(now.getDate() - 7);
+        history = history.filter(e => new Date(e.date) >= startOfWeek);
+    }
+    else if (range === 'month')
+    {
+      const startOfMonth = new Date(now);
+      startOfMonth.setDate(now.getDate() - 30);
+      history = history.filter(e => new Date(e.date) >= startOfMonth);
+    }
+
+    return res.status(200).json(history);
+  }
+  catch (error)
+  {
+    console.error('getStepHistory error:', error);
+    return res.status(500).json({ message: 'Failed to fetch step history' });
+  }
+}
+
+export async function resetDailySteps(req, res)
+{
+  const { id } = req.params;
+  try
+  {
+    const tracker = await StepTracker.findOneAndUpdate(
+      { userId: id },
+      {
+        dailySteps: 0,
+        dailyDistance: 0,
+        dailyCaloriesBurned: 0,
+        dailyActiveMinutes: 0,
+        dailyGoalMet: false,
+      },
+      { new: true }
+    );
+    return res.status(200).json(tracker);
+  }
+  catch (error)
+  {
+    console.error('resetDailySteps error:', error);
+    return res.status(500).json({ message: 'Failed to reset daily steps' });
+  }
+}
+const MS_PER_DAY = 86_400_000;
+
+function isSameDay(a, b) {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth()    === b.getMonth()    &&
+    a.getDate()     === b.getDate()
+  );
+}
+
+function toMidnight(d) {
+  const copy = new Date(d);
+  copy.setHours(0, 0, 0, 0);
+  return copy;
+}
+
+function daysBetween(a, b) {
+  return Math.round((toMidnight(b) - toMidnight(a)) / MS_PER_DAY);
+}
+
+function weeklyStepsUpTo(dailyHistory, date)
+{
+  const start   = toMidnight(date);
+  start.setDate(start.getDate() - 6);
+  const end     = toMidnight(date);
+
+  return dailyHistory
+    .filter(e => e.date >= start && e.date <= end)
+    .reduce((sum, e) => sum + e.steps, 0);
+}
+function calculateDistance(steps, length)
+{
+  return steps*length;
+}
+
+function calculateActiveMin(steps)
+{
+  return Math.floor(steps/100);
 }
