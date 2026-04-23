@@ -3216,3 +3216,130 @@ export function newCD(currentLevel, targetLevel, growthRatePerWeek)
 
   return projectedDate;
 }
+
+export async function AI_Nutrition(req, res)
+{
+  try
+  {
+    validateInput(req.body);
+    const guide = await fetchNutritionGuide(req.body)
+    return res.status(200).json(guide)
+  }
+  catch (error)
+  {
+    console.error('AI Nutrition Guide error', error);
+    return res.status(500).json({ message: 'Failed to fetch Nutrition Guide' });
+  }
+}
+
+function validateInput(userInput) {
+  const { age, weight_kg, height_cm, goal, activity_level } = userInput;
+
+  if (!age || age < 10 || age > 120)         throw new Error("Invalid age.");
+  if (!weight_kg || weight_kg < 20)          throw new Error("Invalid weight.");
+  if (!height_cm || height_cm < 50)          throw new Error("Invalid height.");
+  if (!goal)                                 throw new Error("Goal is required.");
+  if (!activity_level)                       throw new Error("Activity level is required.");
+
+  const validGoals = ["weight_loss", "muscle_gain", "maintenance", "endurance"];
+  const validLevels = ["sedentary", "light", "moderate", "active", "very_active"];
+
+  if (!validGoals.includes(goal))            throw new Error("Invalid goal.");
+  if (!validLevels.includes(activity_level)) throw new Error("Invalid activity level.");
+}
+
+async function fetchNutritionGuide(userInput) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error("GEMINI_API_KEY is missing");
+
+  const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+
+  const { age, weight_kg, height_cm, goal, activity_level } = userInput;
+
+  const requestBody = {
+    contents: [{
+      parts: [{
+        text: `Provide a nutrition guide for: 
+        Age ${age}, 
+        Weight ${weight_kg}kg, 
+        Height ${height_cm}cm, 
+        Goal ${goal}, 
+        Activity ${activity_level}. 
+        Return JSON following this structure: 
+        { "daily_calories": number, 
+         "macros": { "protein_g": number, 
+         "carbs_g": number, 
+         "fat_g": number }, 
+         "meal_count": number, 
+         "recommended_meal_types": [string], 
+         "hydration_liters": number, 
+         "notes": string }`
+      }]
+    }],
+    generationConfig: {
+      response_mime_type: "application/json"
+    }
+  };
+
+  try {
+    const response = await fetch(GEMINI_API_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(requestBody)
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      if (response.status === 429) throw new Error("Rate limit exceeded. Try again in 60 seconds.");
+      throw new Error(`API Error: ${response.status} — ${errText}`);
+    }
+
+    const data = await response.json();
+    const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+
+    if (!rawText) throw new Error("Empty response from AI");
+
+    return JSON.parse(rawText.trim());
+
+  } catch (error) {
+    console.error("AI Fetch Error:", error.message);
+    throw error;
+  }
+}
+
+export async function AI_imageScan(req, res) {
+  const apiKey = process.env.SPOONACULAR_API_KEY;
+
+  console.log("Using API Key:", apiKey ? "Key Found" : "Key MISSING");
+
+  const SPOONACULAR_API_URL = "https://api.spoonacular.com/food/images/analyze";
+  try
+  {
+    const { imageUrl } = req.body;
+
+    if (!imageUrl)
+    {
+      return res.status(400).json({ message: 'No image URL provided' });
+    }
+
+    const spoonacularResponse = await fetch(
+      `${SPOONACULAR_API_URL}?apiKey=${apiKey}&imageUrl=${encodeURIComponent(imageUrl)}`,
+      { method: "GET" }
+    );
+
+    if (!spoonacularResponse.ok)
+    {
+      const errText = await spoonacularResponse.text();
+      throw new Error(`API Error: ${spoonacularResponse.status} ${spoonacularResponse.statusText} — ${errText}`);
+    }
+
+    const result = await spoonacularResponse.json();
+    return res.status(200).json(result);
+
+  }
+  catch (error)
+  {
+    console.error('AI Image Scan error:', error);
+    return res.status(500).json({ message: 'Failed to analyze image' });
+  }
+}
