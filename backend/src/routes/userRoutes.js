@@ -37,6 +37,8 @@ import {
   FitnessGetter,
   FitnessSetter,
   FitnessUpdater,
+  AI_Nutrition,
+  AI_imageScan,
 } from '../controllers/userController.js';
 import proofUpload from '../middleware/proofUpload.js';
 
@@ -86,6 +88,8 @@ router.delete('/:id/active-workout-model-session/end/:sessionId', WorkoutModelSe
 router.get('/:id/user-fitness/stats', FitnessGetter);
 router.post('/:id/user-fitness/survey', FitnessSetter);
 router.post('/:id/user-fitness/update', FitnessUpdater);
+router.post('/:id/AI-Nutrition/guide', AI_Nutrition);
+router.post('/:id/AI-Image-Scan/data', AI_imageScan);
 /*
 bet has to connection to the points yet
 */
