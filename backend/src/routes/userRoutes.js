@@ -41,6 +41,7 @@ import {
   AI_imageScan,
 } from '../controllers/userController.js';
 import proofUpload from '../middleware/proofUpload.js';
+import imageUpload from '../middleware/imageUpload.js';
 
 const router = express.Router();
 
@@ -89,7 +90,8 @@ router.get('/:id/user-fitness/stats', FitnessGetter);
 router.post('/:id/user-fitness/survey', FitnessSetter);
 router.post('/:id/user-fitness/update', FitnessUpdater);
 router.post('/:id/AI-Nutrition/guide', AI_Nutrition);
-router.post('/:id/AI-Image-Scan/data', AI_imageScan);
+router.post('/:id/AI-Image-Scan/image', imageUpload.single('image'), AI_imageScan);
+//router.post('/:id/AI-Image-Scan/data', AI_imageScan);
 /*
 bet has to connection to the points yet
 */
