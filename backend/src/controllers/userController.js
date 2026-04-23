@@ -3319,16 +3319,20 @@ export async function AI_imageScan(req, res) {
   const SPOONACULAR_API_URL = "https://api.spoonacular.com/food/images/analyze";
   try
   {
-    const { imageUrl } = req.body;
-
-    if (!imageUrl)
+    if (!req.file)
     {
-      return res.status(400).json({ message: 'No image URL provided' });
+      return res.status(400).json({ message: 'No image file provided' });
     }
 
+    const formData = new FormData();
+    const blob = new Blob([req.file.buffer], { type: req.file.mimetype });
+    formData.append('file', blob, req.file.originalname);
+    
     const spoonacularResponse = await fetch(
-      `${SPOONACULAR_API_URL}?apiKey=${apiKey}&imageUrl=${encodeURIComponent(imageUrl)}`,
-      { method: "GET" }
+      `${SPOONACULAR_API_URL}?apiKey=${apiKey}`,
+      { method: "POST",
+        body: formData,
+       }
     );
 
     if (!spoonacularResponse.ok)
