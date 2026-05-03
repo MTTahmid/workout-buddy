@@ -44,6 +44,10 @@ const ALLOWED_WORKOUTS = {
 const PAIRING_CODE_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 const USDA_API_KEY = process.env.USDA_API_KEY || 'DEMO_KEY';
 
+function normalizeEmail(value) {
+  return typeof value === 'string' ? value.trim().toLowerCase() : '';
+}
+
 // Convert points to taka (100 points = 1 taka, or 1000 points = 10 taka)
 function pointsToTaka(points) {
   return points / 100;
@@ -395,6 +399,74 @@ export async function getUsers(req, res) {
     res.status(200).json(users);
   } catch (error) {
     res.status(500).json({ message: 'Failed to fetch users' });
+  }
+}
+
+export async function signup(req, res) {
+  try {
+    const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
+    const email = normalizeEmail(req.body?.email);
+    const password = typeof req.body?.password === 'string' ? req.body.password : '';
+
+    if (!name || !email || !password) {
+      return res.status(400).json({
+        message: 'name, email, and password are required',
+      });
+    }
+
+    const existingUser = await Users.findOne({ email });
+    if (existingUser) {
+      return res.status(409).json({ message: 'Email already in use' });
+    }
+
+    const newUser = await Users.create({
+      name,
+      email,
+      // temporary
+      passwordHash: password,
+    });
+
+    return res.status(201).json({
+      message: 'Signup successful',
+      user: {
+        id: newUser._id,
+        name: newUser.name,
+        email: newUser.email,
+      },
+    });
+  } catch (error) {
+    if (error?.code === 11000) {
+      return res.status(409).json({ message: 'Email already in use' });
+    }
+
+    return res.status(500).json({ message: 'Failed to signup' });
+  }
+}
+
+export async function login(req, res) {
+  try {
+    const email = normalizeEmail(req.body?.email);
+    const password = typeof req.body?.password === 'string' ? req.body.password : '';
+
+    if (!email || !password) {
+      return res.status(400).json({ message: 'email and password are required' });
+    }
+
+    const user = await Users.findOne({ email });
+    if (!user || user.passwordHash !== password) {
+      return res.status(401).json({ message: 'Invalid email or password' });
+    }
+
+    return res.status(200).json({
+      message: 'Login successful',
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+      },
+    });
+  } catch (error) {
+    return res.status(500).json({ message: 'Failed to login' });
   }
 }
 

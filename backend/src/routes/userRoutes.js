@@ -1,6 +1,8 @@
 import express from 'express';
 import {
   getUsers,
+  signup,
+  login,
   fetchPairingCode,
   buddyUp,
   getBuddyInfo,
@@ -56,6 +58,8 @@ const router = express.Router();
  * router.put('/evidence)
  */
 router.get('/users', getUsers);
+router.post('/auth/signup', signup);
+router.post('/auth/login', login);
 router.get('/weekly-goals/allowed-stakes', getAllowedStakes);
 router.get('/:id/weekly-goals/allowed-stakes', getAllowedStakes); //just added
 router.post('/:id/weekly-goals/allowed-stakes', addWeeklyGoalStake); //just added
