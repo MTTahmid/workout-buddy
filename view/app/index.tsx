@@ -1,25 +1,37 @@
 import { View, Text, StyleSheet, TouchableOpacity, Share, Alert } from "react-native";
-import React from "react";
+import React, { useEffect } from "react";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { useState } from "react";
 import SideDrawer from "./SideDrawer";
-import { USER_ID } from "@/constants/user";
 import { API_BASE_URL } from "@/constants/api";
+import { useAuth } from "@/context/auth";
+
 export default function Home() {
   const router = useRouter();
+  const { user } = useAuth();
+  const userId = user?.id;
   const [drawerOpen, setDrawerOpen] = useState(false);
 
+  useEffect(() => {
+    if (!userId) return;
+    fetch(`${API_BASE_URL}/user/${userId}/buddy`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data?.buddy) {
+          router.replace(`/dashboard?id=${userId}`);
+        }
+      })
+      .catch(() => {});
+  }, [userId, router]);
+
   const handleInvitePartner = async () => {
+    if (!userId) return;
     try {
-      const response = await fetch(
-        `${API_BASE_URL}/user/${USER_ID}/pairing-code`
-      );
+      const response = await fetch(`${API_BASE_URL}/user/${userId}/pairing-code`);
       const data = await response.json();
       const code = data.pairingCode || "";
-
-      const link = `workoutbuddy:///partner?id=${USER_ID}&code=${code}`;
-
+      const link = `workoutbuddy:///partner?id=${userId}&code=${code}`;
       await Share.share({
         message: `Join me on Workout Buddy! Use my pairing code: ${code}\n\nOr tap this link to pair automatically:\n${link}`,
       });
@@ -30,10 +42,7 @@ export default function Home() {
 
   return (
     <View style={{ flex: 1 }}>
-      <LinearGradient
-        colors={["#0f3d2e", "#000000"]}
-        style={styles.container}
-      >
+      <LinearGradient colors={["#0f3d2e", "#000000"]} style={styles.container}>
         {/* MENU BUTTON */}
         <TouchableOpacity
           style={styles.menuButton}
@@ -63,18 +72,13 @@ export default function Home() {
         </View>
 
         {/* LINK */}
-        <TouchableOpacity onPress={() => router.push(`/partner?id=${USER_ID}`)}>
-          <Text style={styles.linkText}>
-            Enter an invite code to pair
-          </Text>
+        <TouchableOpacity onPress={() => router.push(`/partner?id=${userId}`)}>
+          <Text style={styles.linkText}>Enter an invite code to pair</Text>
         </TouchableOpacity>
       </LinearGradient>
 
       {/* DRAWER COMPONENT */}
-      <SideDrawer
-        visible={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
-      />
+      <SideDrawer visible={drawerOpen} onClose={() => setDrawerOpen(false)} />
     </View>
   );
 }
@@ -85,7 +89,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingTop: 120,
   },
-
   menuButton: {
     position: "absolute",
     top: 60,
@@ -97,7 +100,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-
   centerCircle: {
     width: 160,
     height: 160,
@@ -107,14 +109,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginBottom: 40,
   },
-
   title: {
     color: "#fff",
     fontSize: 32,
     fontWeight: "600",
     marginBottom: 40,
   },
-
   primaryButton: {
     backgroundColor: "#39d2b4",
     paddingVertical: 18,
@@ -122,31 +122,26 @@ const styles = StyleSheet.create({
     borderRadius: 50,
     marginBottom: 30,
   },
-
   primaryText: {
     color: "#fff",
     fontSize: 18,
     fontWeight: "600",
   },
-
   dividerRow: {
     flexDirection: "row",
     alignItems: "center",
     width: "80%",
     marginBottom: 20,
   },
-
   line: {
     flex: 1,
     height: 1,
     backgroundColor: "#333",
   },
-
   orText: {
     color: "#777",
     marginHorizontal: 10,
   },
-
   linkText: {
     color: "#39d2b4",
     fontSize: 16,

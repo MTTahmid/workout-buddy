@@ -199,6 +199,8 @@ function buildWeeklyDayStatuses(weeklyGoal, uploadedDays = [], now = new Date())
   return { days, summary };
 }
 
+// ----
+
 function buildEmptyDailyStreaks(participants) {
   return participants.map((participantId) => ({
     userId: participantId,
@@ -249,7 +251,6 @@ async function deleteWeeklyGoalProofFiles(weeklyGoal) {
     }
   }
 }
-
 async function deleteDuplicateWeeklyGoals({ buddyPairId, participants, keepGoalId }) {
   const participantSet = new Set((participants || []).map((memberId) => String(memberId)));
   const allCandidates = await WeeklyGoal.find({ _id: { $ne: keepGoalId } })
@@ -276,7 +277,7 @@ async function deleteDuplicateWeeklyGoals({ buddyPairId, participants, keepGoalI
     await WeeklyGoal.deleteOne({ _id: duplicateGoal._id });
   }
 }
-
+// weekly goal
 function getWeeklyGoalSortDateValue(goal) {
   if (!goal) {
     return Number.NEGATIVE_INFINITY;
@@ -415,7 +416,7 @@ async function resetWeeklyGoalIfExpired(weeklyGoal, now = new Date()) {
 
   return weeklyGoal;
 }
-
+// ---
 export async function getUsers(req, res) {
   try {
     const users = await Users.find().sort({ createdAt: -1 });
@@ -702,7 +703,7 @@ export async function getBuddyInfo(req, res) {
     return res.status(500).json({ message: 'Failed to fetch buddy info' });
   }
 }
-
+// apart of reward
 export async function getBuddyMoneyInfo(req, res) {
   try {
     const { id } = req.params;
@@ -796,7 +797,7 @@ export async function toggleBuddyMonetary(req, res) {
     return res.status(500).json({ message: 'Failed to update buddy monetary setting' });
   }
 }
-
+// ----
 export async function getWeeklyWorkoutRoutine(req, res) {
   try {
     const { id } = req.params;
@@ -848,6 +849,7 @@ export async function getWeeklyWorkoutRoutine(req, res) {
   }
 }
 
+// weekly goal - stakes
 export async function getAllowedStakes(req, res) {
   try {
     const { id } = req.params;
@@ -1039,7 +1041,9 @@ export async function updateWeeklyGoal(req, res) {
     return res.status(500).json({ message: 'Failed to update weekly goal' });
   }
 }
+// --
 
+// buddy challenge -- mini bets
 export async function createBuddyChallenge(req, res) {
   try {
     const { id } = req.params;
@@ -1375,6 +1379,8 @@ export async function getBuddyChallengeProof(req, res) {
     return res.status(500).json({ message: 'Failed to fetch challenge proof' });
   }
 }
+
+// --
 
 export async function getUserHistory(req, res) {
   try {
@@ -1883,7 +1889,7 @@ export async function getWeeklyGoalDetails(req, res) {
     return res.status(500).json({ message: 'Failed to fetch weekly goal details' });
   }
 }
-
+// calorie tracker
 export async function CalorieLogger(req, res)
 {
   try {
@@ -1981,6 +1987,7 @@ function parseKcalPer100gFromProduct(product) {
   return null;
 }
 
+// food intake
 const FALLBACK_FOODS = [
   { foodName: 'Brown Rice', kcalPer100g: 111 },
   { foodName: 'White Rice', kcalPer100g: 130 },
@@ -2191,6 +2198,7 @@ export async function SearchFoods(req, res) {
   }
 }
 
+// ---
 export async function CalorieIntakeLogger(req, res) {
   try {
     const { id } = req.params;
@@ -2360,6 +2368,7 @@ export async function GetCalorieHistory(req, res)
     return res.status(500).json({ message: 'Failed to fetch Calorie history' });
   }
 }
+// workout model
 export async function WorkoutGetter(req, res)
 {
   try

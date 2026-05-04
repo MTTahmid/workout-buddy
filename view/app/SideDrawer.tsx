@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
 import { useRouter } from "expo-router";
-import { USER_ID } from "@/constants/user";
+import { useAuth } from "@/context/auth";
 import { API_BASE_URL } from "@/constants/api";
 
 type Props = {
@@ -11,108 +11,143 @@ type Props = {
 
 export default function SideDrawer({ visible, onClose }: Props) {
   const router = useRouter();
-  const [fullName, setFullName] = useState("");
+  const { user, logout } = useAuth();
+  const userId = user?.id;
+  const [fullName, setFullName] = useState(user?.name || "");
+  const [isPaired, setIsPaired] = useState(false);
 
   useEffect(() => {
-    if (!visible) return;
-    const fetchName = async () => {
-      try {
-        const res = await fetch(`${API_BASE_URL}/user/users`);
-        if (!res.ok) return;
-        const users = await res.json();
-        const user = Array.isArray(users)
-          ? users.find((u: any) => String(u?._id) === String(USER_ID))
-          : null;
-        if (user?.name) setFullName(user.name);
-      } catch (e) {
-        console.error("Failed to fetch user name:", e);
-      }
-    };
-    fetchName();
-  }, [visible]);
+    if (user?.name) setFullName(user.name);
+  }, [user]);
+
+  useEffect(() => {
+    if (!visible || !userId) return;
+    fetch(`${API_BASE_URL}/user/${userId}/buddy`)
+      .then((res) => res.json())
+      .then((data) => setIsPaired(!!data?.buddy))
+      .catch(() => {});
+  }, [visible, userId]);
+
+  const handleLogout = async () => {
+    onClose();
+    await logout();
+    router.replace("/login");
+  };
 
   if (!visible) return null;
 
   return (
     <View style={styles.drawerOverlay}>
-      {/* Dark tap area */}
       <TouchableOpacity style={styles.overlay} onPress={onClose} />
 
-      {/* Drawer Panel */}
       <View style={styles.drawer}>
         <View style={styles.profileRow}>
           <View style={styles.profileCircle}>
-            <Text style={styles.profileInitial}>{fullName ? fullName.charAt(0).toUpperCase() : ""}</Text>
+            <Text style={styles.profileInitial}>
+              {fullName ? fullName.charAt(0).toUpperCase() : ""}
+            </Text>
           </View>
           <Text style={styles.profileName}>{fullName}</Text>
         </View>
 
+        <TouchableOpacity
+          onPress={() => {
+            onClose();
+            router.push(`/habits?id=${userId}`);
+          }}
+        >
+          <Text style={styles.drawerItem}>Habits</Text>
+        </TouchableOpacity>
+
         <View style={styles.divider} />
 
-        <TouchableOpacity
-          onPress={() => {
-            onClose();
-            router.push(`/weekly-rules?id=${USER_ID}`);
-          }}
-        >
-          <Text style={styles.drawerItem}>Weekly Rules</Text>
-        </TouchableOpacity>
+        {isPaired && (
+          <>
+            <TouchableOpacity
+              onPress={() => {
+                onClose();
+                router.push(`/chat?id=${userId}`);
+              }}
+            >
+              <Text style={styles.drawerItem}>Chat</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={() => {
+                onClose();
+                router.push(`/weekly-rules?id=${userId}`);
+              }}
+            >
+              <Text style={styles.drawerItem}>Weekly Rules</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={() => {
+                onClose();
+                router.push(`/wager-balance?id=${userId}`);
+              }}
+            >
+              <Text style={styles.drawerItem}>Wager Balance</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={() => {
+                onClose();
+                router.push(`/mini-bets?id=${userId}`);
+              }}
+            >
+              <Text style={styles.drawerItem}>Mini Bets</Text>
+            </TouchableOpacity>
+          </>
+        )}
 
         <TouchableOpacity
           onPress={() => {
             onClose();
-            router.push(`/wager-balance?id=${USER_ID}`);
-          }}
-        >
-          <Text style={styles.drawerItem}>Wager Balance</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          onPress={() => {
-            onClose();
-            router.push(`/mini-bets?id=${USER_ID}`);
-          }}
-        >
-          <Text style={styles.drawerItem}>Mini Bets</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          onPress={() => {
-            onClose();
-            router.push(`/partner?id=${USER_ID}`);
+            router.push(`/partner?id=${userId}`);
           }}
         >
           <Text style={styles.drawerItem}>Partner</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity
-          onPress={() => {
-            onClose();
-            router.push(`/workout-models?id=${USER_ID}`);
-          }}
-        >
-          <Text style={styles.drawerItem}>Workout Models</Text>
-        </TouchableOpacity>
+        {isPaired && (
+          <>
+            <TouchableOpacity
+              onPress={() => {
+                onClose();
+                router.push(`/workout-models?id=${userId}`);
+              }}
+            >
+              <Text style={styles.drawerItem}>Workout Models</Text>
+            </TouchableOpacity>
 
-        <TouchableOpacity
-          onPress={() => {
-            onClose();
-            router.push(`/calorie-tracker?id=${USER_ID}`);
-          }}
-        >
-          <Text style={styles.drawerItem}>Calorie Tracker</Text>
-        </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => {
+                onClose();
+                router.push(`/calorie-tracker?id=${userId}`);
+              }}
+            >
+              <Text style={styles.drawerItem}>Calorie Tracker</Text>
+            </TouchableOpacity>
 
-        <TouchableOpacity
-          onPress={() => {
-            onClose();
-            router.push(`/history?id=${USER_ID}`);
-          }}
-        >
-          <Text style={styles.drawerItem}>History</Text>
-        </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => {
+                onClose();
+                router.push(`/history?id=${userId}`);
+              }}
+            >
+              <Text style={styles.drawerItem}>History</Text>
+            </TouchableOpacity>
 
-        <Text style={styles.drawerItem}>Settings</Text>
+            <Text style={styles.drawerItem}>Settings</Text>
+          </>
+        )}
+
+        <View style={styles.divider} />
+
+        <TouchableOpacity onPress={handleLogout}>
+          <Text style={styles.logoutItem}>Log Out</Text>
+        </TouchableOpacity>
       </View>
     </View>
   );
@@ -125,25 +160,21 @@ const styles = StyleSheet.create({
     height: "100%",
     flexDirection: "row-reverse",
   },
-
   overlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.5)",
   },
-
   drawer: {
     width: 300,
     backgroundColor: "#1f1f1f",
     paddingTop: 120,
     paddingHorizontal: 25,
   },
-
   profileRow: {
     flexDirection: "row",
     alignItems: "center",
     marginBottom: 30,
   },
-
   profileCircle: {
     width: 60,
     height: 60,
@@ -154,27 +185,28 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginRight: 15,
   },
-
   profileInitial: {
     color: "#fff",
     fontSize: 20,
     fontWeight: "600",
   },
-
   profileName: {
     color: "#fff",
     fontSize: 18,
     fontWeight: "600",
   },
-
   divider: {
     height: 1,
     backgroundColor: "#333",
     marginBottom: 30,
   },
-
   drawerItem: {
     color: "#fff",
+    fontSize: 20,
+    marginBottom: 25,
+  },
+  logoutItem: {
+    color: "#ff5555",
     fontSize: 20,
     marginBottom: 25,
   },

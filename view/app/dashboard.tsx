@@ -13,16 +13,17 @@ import {
   Platform,
 } from "react-native";
 import { useLocalSearchParams } from "expo-router";
-import { USER_ID } from "@/constants/user";
 import { API_BASE_URL } from "@/constants/api";
 import SideDrawer from "./SideDrawer";
+import { useAuth } from "@/context/auth";
 import * as ImagePicker from "expo-image-picker";
 
 const { width } = Dimensions.get("window");
 
 export default function Dashboard() {
   const params = useLocalSearchParams();
-  const userId = (params.id as string) || USER_ID;
+  const { user } = useAuth();
+  const userId = (params.id as string) || user?.id || "";
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [userName, setUserName] = useState("x");
   const [buddyName, setBuddyName] = useState("Buddy");
