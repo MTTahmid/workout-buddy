@@ -5,6 +5,24 @@ const userSchema = new mongoose.Schema({
   email: { type: String, unique: true },
   pairingCode: { type: String, unique: true, sparse: true },
   passwordHash: String,
+  role: {
+    type: String,
+    enum: ['user', 'admin'],
+    default: 'user',
+    index: true,
+  },
+  moderationStatus: {
+    status: {
+      type: String,
+      enum: ['active', 'restricted', 'suspended'],
+      default: 'active',
+      index: true,
+    },
+    reason: { type: String, default: null },
+    restrictedUntil: { type: Date, default: null },
+    suspendedUntil: { type: Date, default: null },
+    updatedAt: { type: Date, default: Date.now },
+  },
   profile: {
     age: Number,
     weight: Number,
