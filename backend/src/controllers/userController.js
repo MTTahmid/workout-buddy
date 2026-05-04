@@ -12,6 +12,7 @@ import WMCompletionHistory from '../models/WMCompletionHistory.js';
 import UserFitness from '../models/UserFitness.js';
 import StepTracker from '../models/StepTracker.js';
 import ChatMessage from '../models/ChatMessage.js';
+import Habit from '../models/Habit.js';
 import {
   getProofDownloadStream,
   uploadProofToGridFS,
@@ -28,6 +29,22 @@ const ALLOWED_STAKES = [
 
 const DEFAULT_WEEKLY_GOAL = 3;
 const DEFAULT_WEEKLY_STAKE = '1 Dinner';
+
+const PREDEFINED_GOOD_HABITS = [
+  'Drink 8 glasses of water',
+  'Walk 30 minutes',
+  'Read for 20 minutes',
+  'Stretch in the morning',
+  'Sleep before 11 PM',
+];
+
+const PREDEFINED_BAD_HABITS = [
+  'Late-night scrolling',
+  'Sugary drinks',
+  'Skipping meals',
+  'Smoking',
+  'Excessive junk food',
+];
 
 //replace this by making calorieCalc access the workout table
 const ALLOWED_WORKOUTS = {
@@ -3779,5 +3796,276 @@ export async function markChatMessagesRead(req, res) {
   } catch (error) {
     console.error('markChatMessagesRead error:', error);
     return res.status(500).json({ message: 'Failed to mark messages read' });
+  }
+}
+
+function getMondayStart(date = new Date()) {
+  const start = new Date(date);
+  const day = start.getDay();
+  const diff = (day + 6) % 7;
+  start.setDate(start.getDate() - diff);
+  start.setHours(0, 0, 0, 0);
+  return start;
+}
+
+function getWeekWindow(date) {
+  const start = getMondayStart(date);
+  const end = new Date(start);
+  end.setDate(end.getDate() + 6);
+  end.setHours(23, 59, 59, 999);
+  return { start, end };
+}
+
+function formatWeekKey(date) {
+  const weekStart = getMondayStart(date);
+  return weekStart.toISOString().slice(0, 10);
+}
+
+function buildLastSevenWeeks(referenceDate = new Date()) {
+  const currentStart = getMondayStart(referenceDate);
+  return Array.from({ length: 7 }, (_, index) => {
+    const start = new Date(currentStart);
+    start.setDate(start.getDate() - ((6 - index) * 7));
+    const end = new Date(start);
+    end.setDate(end.getDate() + 6);
+    end.setHours(23, 59, 59, 999);
+    return {
+      weekStartDate: start,
+      weekEndDate: end,
+      weekKey: start.toISOString().slice(0, 10),
+    };
+  });
+}
+
+function normalizeHabitGoalType(category, goalType) {
+  if (goalType === 'do' || goalType === 'avoid') {
+    return goalType;
+  }
+
+  return category === 'bad' ? 'avoid' : 'do';
+}
+
+function normalizeHabitTargetCount(category, goalType, targetCount) {
+  const parsed = Number(targetCount);
+
+  if (Number.isInteger(parsed) && parsed >= 0) {
+    return parsed;
+  }
+
+  return normalizeHabitGoalType(category, goalType) === 'avoid' ? 0 : 1;
+}
+
+function buildHabitWeeklyProgress(habit, weeks) {
+  const logs = Array.isArray(habit.logs) ? habit.logs : [];
+  const countsByWeek = new Map();
+
+  for (const log of logs) {
+    const loggedDate = new Date(log.loggedAt || log.createdAt || new Date());
+    const weekKey = formatWeekKey(loggedDate);
+    countsByWeek.set(weekKey, (countsByWeek.get(weekKey) || 0) + 1);
+  }
+
+  return weeks.map((week) => {
+    const occurrenceCount = countsByWeek.get(week.weekKey) || 0;
+    const goalType = habit.goalType || normalizeHabitGoalType(habit.category, habit.goalType);
+    const targetCount = Number.isInteger(habit.targetCount) ? habit.targetCount : normalizeHabitTargetCount(habit.category, goalType);
+    const met = goalType === 'avoid'
+      ? occurrenceCount <= targetCount
+      : occurrenceCount >= targetCount;
+
+    return {
+      weekStartDate: week.weekStartDate,
+      weekEndDate: week.weekEndDate,
+      occurrenceCount,
+      targetCount,
+      status: met ? 'green' : 'red',
+      met,
+    };
+  });
+}
+
+function splitHabitsByCategory(habits, weeks) {
+  const good = [];
+  const bad = [];
+
+  for (const habit of habits) {
+    const row = {
+      habitId: habit._id,
+      name: habit.name,
+      category: habit.category,
+      source: habit.source,
+      goalType: habit.goalType,
+      targetCount: habit.targetCount,
+      isActive: habit.isActive,
+      weeklyProgress: buildHabitWeeklyProgress(habit, weeks),
+    };
+
+    if (habit.category === 'bad') {
+      bad.push(row);
+    } else {
+      good.push(row);
+    }
+  }
+
+  return { good, bad };
+}
+
+export async function getHabitLibrary(req, res) {
+  return res.status(200).json({
+    good: PREDEFINED_GOOD_HABITS,
+    bad: PREDEFINED_BAD_HABITS,
+  });
+}
+
+export async function getUserHabits(req, res) {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ message: 'Invalid user id' });
+    }
+
+    const userExists = await Users.exists({ _id: id });
+    if (!userExists) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    const weeks = buildLastSevenWeeks();
+    const habits = await Habit.find({ userId: id, isActive: true }).sort({ createdAt: -1 }).lean();
+    const tables = splitHabitsByCategory(habits, weeks);
+
+    return res.status(200).json({
+      userId: id,
+      weeks: weeks.map((week) => ({
+        weekStartDate: week.weekStartDate,
+        weekEndDate: week.weekEndDate,
+        weekKey: week.weekKey,
+      })),
+      goodHabits: tables.good,
+      badHabits: tables.bad,
+    });
+  } catch (error) {
+    console.error('getUserHabits error:', error);
+    return res.status(500).json({ message: 'Failed to fetch habits' });
+  }
+}
+
+export async function createHabit(req, res) {
+  try {
+    const { id } = req.params;
+    const { name, category, goalType, targetCount, source } = req.body || {};
+
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ message: 'Invalid user id' });
+    }
+
+    const normalizedName = typeof name === 'string' ? name.trim() : '';
+    const normalizedCategory = category === 'good' || category === 'bad' ? category : '';
+
+    if (!normalizedName || !normalizedCategory) {
+      return res.status(400).json({ message: 'name and category are required' });
+    }
+
+    const userExists = await Users.exists({ _id: id });
+    if (!userExists) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    const resolvedGoalType = normalizeHabitGoalType(normalizedCategory, goalType);
+    const resolvedTargetCount = normalizeHabitTargetCount(normalizedCategory, resolvedGoalType, targetCount);
+
+    const habit = await Habit.create({
+      userId: id,
+      name: normalizedName,
+      category: normalizedCategory,
+      source: source === 'predefined' ? 'predefined' : 'custom',
+      goalType: resolvedGoalType,
+      targetCount: resolvedTargetCount,
+      isActive: true,
+      logs: [],
+    });
+
+    return res.status(201).json({ habit });
+  } catch (error) {
+    console.error('createHabit error:', error);
+    return res.status(500).json({ message: 'Failed to create habit' });
+  }
+}
+
+export async function logHabitOccurrence(req, res) {
+  try {
+    const { id, habitId } = req.params;
+    const { note } = req.body || {};
+
+    if (!mongoose.isValidObjectId(id) || !mongoose.isValidObjectId(habitId)) {
+      return res.status(400).json({ message: 'Invalid user id or habit id' });
+    }
+
+    const habit = await Habit.findOne({ _id: habitId, userId: id, isActive: true });
+    if (!habit) {
+      return res.status(404).json({ message: 'Habit not found' });
+    }
+
+    habit.logs.push({
+      loggedAt: new Date(),
+      note: typeof note === 'string' ? note.trim() : null,
+    });
+
+    await habit.save();
+
+    return res.status(201).json({ habit });
+  } catch (error) {
+    console.error('logHabitOccurrence error:', error);
+    return res.status(500).json({ message: 'Failed to log habit occurrence' });
+  }
+}
+
+export async function updateHabitGoal(req, res) {
+  try {
+    const { id, habitId } = req.params;
+    const { goalType, targetCount, name, category } = req.body || {};
+
+    if (!mongoose.isValidObjectId(id) || !mongoose.isValidObjectId(habitId)) {
+      return res.status(400).json({ message: 'Invalid user id or habit id' });
+    }
+
+    const habit = await Habit.findOne({ _id: habitId, userId: id, isActive: true });
+    if (!habit) {
+      return res.status(404).json({ message: 'Habit not found' });
+    }
+
+    if (typeof name === 'string' && name.trim()) {
+      habit.name = name.trim();
+    }
+
+    if (category === 'good' || category === 'bad') {
+      habit.category = category;
+    }
+
+    habit.goalType = normalizeHabitGoalType(habit.category, goalType || habit.goalType);
+    habit.targetCount = normalizeHabitTargetCount(habit.category, habit.goalType, targetCount ?? habit.targetCount);
+
+    await habit.save();
+
+    return res.status(200).json({ habit });
+  } catch (error) {
+    console.error('updateHabitGoal error:', error);
+    return res.status(500).json({ message: 'Failed to update habit goal' });
+  }
+}
+
+export async function deleteHabit(req, res) {
+  try {
+    const { id, habitId } = req.params;
+
+    if (!mongoose.isValidObjectId(id) || !mongoose.isValidObjectId(habitId)) {
+      return res.status(400).json({ message: 'Invalid user id or habit id' });
+    }
+
+    const result = await Habit.deleteOne({ _id: habitId, userId: id });
+    return res.status(200).json({ deletedCount: result.deletedCount || 0 });
+  } catch (error) {
+    console.error('deleteHabit error:', error);
+    return res.status(500).json({ message: 'Failed to delete habit' });
   }
 }
