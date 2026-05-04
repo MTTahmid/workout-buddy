@@ -515,6 +515,114 @@ Returns array of calorie tracking entries with metrics like weight, goal, workou
 | POST | `/user/:id/active-workout-model-session/update` | Update session progress |
 | DELETE | `/user/:id/active-workout-model-session/end` | End current workout session |
 
+### Home Screen Widgets
+
+| Method | Endpoint | Description |
+| ------ | -------- | ----------- |
+| GET | `/user/:id/widget-config` | Get user's widget configuration and preferences |
+| POST | `/user/:id/widget-config` | Save/update user's widget display preferences |
+| GET | `/user/:id/widget-data` | Get aggregated widget data (streak, steps, calories, goals, habits) |
+
+#### `GET /user/:id/widget-config`
+
+Returns widget configuration with enabled widgets, sizes, metrics, theme preference, and refresh interval.
+
+Response:
+
+```json
+{
+	"userId": "<ObjectId>",
+	"widgetsEnabled": [
+		{
+			"type": "streak",
+			"size": "small",
+			"metrics": ["current"],
+			"enabled": true
+		},
+		{
+			"type": "steps",
+			"size": "medium",
+			"metrics": ["current", "goal", "percentage"],
+			"enabled": true
+		}
+	],
+	"refreshInterval": 3600,
+	"theme": "auto",
+	"createdAt": "2026-03-27T12:00:00.000Z",
+	"updatedAt": "2026-03-27T12:00:00.000Z"
+}
+```
+
+Widget types: `streak`, `steps`, `calories`, `goals`, `habits`
+Sizes: `small`, `medium`, `large`
+Themes: `light`, `dark`, `auto`
+
+#### `POST /user/:id/widget-config`
+
+Request body:
+
+```json
+{
+	"widgetsEnabled": [
+		{
+			"type": "streak",
+			"size": "small",
+			"metrics": ["current"],
+			"enabled": true
+		}
+	],
+	"refreshInterval": 1800,
+	"theme": "dark"
+}
+```
+
+#### `GET /user/:id/widget-data`
+
+Returns real-time aggregated data for all widget types.
+
+Response:
+
+```json
+{
+	"userId": "<ObjectId>",
+	"timestamp": "2026-03-27T12:00:00.000Z",
+	"metrics": {
+		"streak": {
+			"type": "streak",
+			"current": 5,
+			"lastWorkoutDate": "2026-03-27T00:00:00.000Z"
+		},
+		"steps": {
+			"type": "steps",
+			"current": 8750,
+			"goal": 10000,
+			"percentage": 87,
+			"goalMet": false
+		},
+		"calories": {
+			"type": "calories",
+			"current": 1850,
+			"goal": 2000,
+			"percentage": 92,
+			"goalMet": false
+		},
+		"goals": {
+			"type": "goals",
+			"active": 1,
+			"completed": 0,
+			"total": 1
+		},
+		"habits": {
+			"type": "habits",
+			"total": 5,
+			"completed": 3,
+			"goodHabits": 3,
+			"badHabits": 2
+		}
+	}
+}
+```
+
 ## Data Collections Used
 
 - `user`

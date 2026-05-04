@@ -13,6 +13,7 @@ import UserFitness from '../models/UserFitness.js';
 import StepTracker from '../models/StepTracker.js';
 import ChatMessage from '../models/ChatMessage.js';
 import Habit from '../models/Habit.js';
+import WidgetConfig from '../models/WidgetConfig.js';
 import {
   getProofDownloadStream,
   uploadProofToGridFS,
@@ -4370,5 +4371,141 @@ export async function getCalendarView(req, res) {
   } catch (error) {
     console.error('getCalendarView error:', error);
     return res.status(500).json({ message: 'Failed to build calendar view' });
+  }
+}
+
+export async function getWidgetConfig(req, res) {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ message: 'Invalid user id' });
+    }
+
+    let config = await WidgetConfig.findOne({ userId: id });
+
+    if (!config) {
+      // Return default config if none exists
+      config = {
+        userId: id,
+        widgetsEnabled: [
+          { type: 'streak', size: 'small', metrics: ['current'], enabled: true },
+          { type: 'steps', size: 'medium', metrics: ['current', 'goal', 'percentage'], enabled: true },
+          { type: 'calories', size: 'medium', metrics: ['current', 'goal'], enabled: true },
+          { type: 'goals', size: 'small', metrics: ['count'], enabled: true },
+          { type: 'habits', size: 'medium', metrics: ['completed', 'total'], enabled: true },
+        ],
+        refreshInterval: 3600,
+        theme: 'auto',
+      };
+    }
+
+    return res.status(200).json(config);
+  } catch (error) {
+    console.error('getWidgetConfig error:', error);
+    return res.status(500).json({ message: 'Failed to retrieve widget config' });
+  }
+}
+
+export async function saveWidgetConfig(req, res) {
+  try {
+    const { id } = req.params;
+    const { widgetsEnabled, refreshInterval, theme } = req.body;
+
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ message: 'Invalid user id' });
+    }
+
+    const userExists = await Users.exists({ _id: id });
+    if (!userExists) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    const config = await WidgetConfig.findOneAndUpdate(
+      { userId: id },
+      {
+        userId: id,
+        widgetsEnabled: widgetsEnabled || [],
+        refreshInterval: refreshInterval || 3600,
+        theme: theme || 'auto',
+      },
+      { upsert: true, new: true }
+    );
+
+    return res.status(200).json({ message: 'Widget config saved', config });
+  } catch (error) {
+    console.error('saveWidgetConfig error:', error);
+    return res.status(500).json({ message: 'Failed to save widget config' });
+  }
+}
+
+export async function getWidgetData(req, res) {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ message: 'Invalid user id' });
+    }
+
+    const userExists = await Users.exists({ _id: id });
+    if (!userExists) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    const [stepTracker, calorieTracker, habits, weeklyGoals, userFitness, buddyWorkouts] = await Promise.all([
+      StepTracker.findOne({ userId: id }).lean(),
+      CalorieTracker.findOne({ userId: id }).sort({ date: -1 }).lean(),
+      Habit.find({ userId: id, isActive: true }).lean(),
+      WeeklyGoal.findOne({ participants: id }).sort({ startDate: -1 }).lean(),
+      UserFitness.findOne({ userId: id }).lean(),
+      BuddyWorkout.find({ members: id }).lean(),
+    ]);
+
+    const user = await Users.findById(id).select('streak goals').lean();
+
+    // Calculate metrics
+    const widgetData = {
+      userId: id,
+      timestamp: new Date(),
+      metrics: {
+        streak: {
+          type: 'streak',
+          current: user?.streak?.current || 0,
+          lastWorkoutDate: user?.streak?.lastWorkoutDate || null,
+        },
+        steps: {
+          type: 'steps',
+          current: stepTracker?.dailySteps || 0,
+          goal: stepTracker?.dailyGoal || 10000,
+          percentage: stepTracker ? Math.round(((stepTracker.dailySteps || 0) / (stepTracker.dailyGoal || 10000)) * 100) : 0,
+          goalMet: (stepTracker?.dailySteps || 0) >= (stepTracker?.dailyGoal || 10000),
+        },
+        calories: {
+          type: 'calories',
+          current: calorieTracker?.calories || 0,
+          goal: user?.goals?.calorieGoal || 2000,
+          percentage: user ? Math.round(((calorieTracker?.calories || 0) / (user.goals?.calorieGoal || 2000)) * 100) : 0,
+          goalMet: (calorieTracker?.calories || 0) >= (user?.goals?.calorieGoal || 2000),
+        },
+        goals: {
+          type: 'goals',
+          active: weeklyGoals ? 1 : 0,
+          completed: 0,
+          total: 1,
+        },
+        habits: {
+          type: 'habits',
+          total: habits.length,
+          completed: habits.filter((h) => (h.logs || []).length > 0).length,
+          goodHabits: habits.filter((h) => h.category === 'good').length,
+          badHabits: habits.filter((h) => h.category === 'bad').length,
+        },
+      },
+    };
+
+    return res.status(200).json(widgetData);
+  } catch (error) {
+    console.error('getWidgetData error:', error);
+    return res.status(500).json({ message: 'Failed to fetch widget data' });
   }
 }

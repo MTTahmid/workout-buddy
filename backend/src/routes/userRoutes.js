@@ -56,6 +56,9 @@ import {
   getChatMessages,
   sendChatMessage,
   markChatMessagesRead,
+  getWidgetConfig,
+  saveWidgetConfig,
+  getWidgetData,
 } from '../controllers/userController.js';
 import proofUpload from '../middleware/proofUpload.js';
 import imageUpload from '../middleware/imageUpload.js';
@@ -125,6 +128,9 @@ router.put('/:id/steps/goal', updateStepGoal);
 router.get('/:id/chat/:buddyPairId/messages', getChatMessages);
 router.post('/:id/chat/:buddyPairId/messages', sendChatMessage);
 router.patch('/:id/chat/:buddyPairId/messages/read', markChatMessagesRead);
+router.get('/:id/widget-config', getWidgetConfig);
+router.post('/:id/widget-config', saveWidgetConfig);
+router.get('/:id/widget-data', getWidgetData);
 /*
 bet has to connection to the points yet
 */
