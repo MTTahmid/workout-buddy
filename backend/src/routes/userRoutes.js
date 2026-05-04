@@ -59,6 +59,7 @@ import {
   getWidgetConfig,
   saveWidgetConfig,
   getWidgetData,
+  getPerformanceSummary,
   getNotificationPreferences,
   saveNotificationPreferences,
   getNotificationFeed,
@@ -135,6 +136,7 @@ router.patch('/:id/chat/:buddyPairId/messages/read', markChatMessagesRead);
 router.get('/:id/widget-config', getWidgetConfig);
 router.post('/:id/widget-config', saveWidgetConfig);
 router.get('/:id/widget-data', getWidgetData);
+router.get('/:id/performance', getPerformanceSummary);
 router.get('/:id/notification-settings', getNotificationPreferences);
 router.post('/:id/notification-settings', saveNotificationPreferences);
 router.get('/:id/notifications', getNotificationFeed);
