@@ -525,6 +525,146 @@ Request body:
 
 Returns array of calorie tracking entries with metrics like weight, goal, workout type, duration, calories burned, and whether goal was met.
 
+### Step Tracking
+
+| Method | Endpoint | Description |
+| ------ | -------- | ----------- |
+| GET | `/user/:id/steps/get` | Get the current step tracker summary for a user |
+| POST | `/user/:id/steps/log` | Log today's step count and update stats |
+| GET | `/user/:id/steps/history` | Get step history, optionally filtered by `range=week|month` |
+| POST | `/user/:id/steps/reset` | Reset the daily step counters |
+| PUT | `/user/:id/steps/goal` | Update daily and weekly step goals |
+
+#### `GET /user/:id/steps/get`
+
+Returns the user's step tracker document. If none exists yet, the backend creates one automatically.
+
+#### `POST /user/:id/steps/log`
+
+Request body:
+
+```json
+{
+	"steps": 8450
+}
+```
+
+Returns the updated daily summary and step stats, including:
+
+- `today.steps`
+- `today.distance`
+- `today.caloriesBurned`
+- `today.activeMinutes`
+- `today.goalMet`
+- `stats.allTimeSteps`
+- `stats.avgDailySteps`
+- `stats.avgWeeklySteps`
+- `stats.weeklyTotal`
+- `stats.weeklyGoalMet`
+- `stats.currentStreak`
+- `stats.longestStreak`
+
+#### `GET /user/:id/steps/history`
+
+Optional query param:
+
+- `range=week`
+- `range=month`
+
+Returns the stored daily step history entries.
+
+#### `POST /user/:id/steps/reset`
+
+Resets the current daily step fields for the tracker.
+
+#### `PUT /user/:id/steps/goal`
+
+Request body:
+
+```json
+{
+	"dailyStepGoal": 10000,
+	"weeklyStepGoal": 70000
+}
+```
+
+### Nutrition & Food Logging
+
+| Method | Endpoint | Description |
+| ------ | -------- | ----------- |
+| GET | `/user/foods/search` | Search foods from OpenFoodFacts / USDA with local fallback |
+| POST | `/user/:id/calories/intake/log` | Log food intake and calculate intake calories |
+| GET | `/user/:id/calories/intake/history` | Get calorie intake history for a user |
+| POST | `/user/:id/AI-Nutrition/guide` | Generate an AI nutrition guide from user metrics |
+| POST | `/user/:id/AI-Image-Scan/image` | Analyze an uploaded food image |
+
+#### `GET /user/foods/search`
+
+Query param:
+
+- `q` is required and should be at least 2 characters.
+
+Returns matching foods from live sources, with a fallback list if external APIs are unavailable.
+
+#### `POST /user/:id/calories/intake/log`
+
+Request body:
+
+```json
+{
+	"foodName": "Banana",
+	"productId": "123456789",
+	"grams": 120,
+	"quantity": 1,
+	"kcalPer100g": 89,
+	"date": "2026-05-05T08:00:00.000Z"
+}
+```
+
+Notes:
+
+- `foodName`, `grams`, and `quantity` are required.
+- The backend tries to resolve calories from the selected product first, then falls back to the provided `kcalPer100g`.
+
+#### `GET /user/:id/calories/intake/history`
+
+Returns a user's food intake log entries and total intake calories.
+
+#### `POST /user/:id/AI-Nutrition/guide`
+
+Request body:
+
+```json
+{
+	"age": 28,
+	"weight_kg": 72,
+	"height_cm": 175,
+	"goal": "maintenance",
+	"activity_level": "moderate"
+}
+```
+
+Valid goals:
+
+- `weight_loss`
+- `muscle_gain`
+- `maintenance`
+- `endurance`
+
+Valid activity levels:
+
+- `sedentary`
+- `light`
+- `moderate`
+- `active`
+- `very_active`
+
+The backend returns JSON with daily calories, macros, meal count, meal type suggestions, hydration target, and notes.
+
+#### `POST /user/:id/AI-Image-Scan/image`
+
+Accepts an uploaded `image` field and returns an analysis result for the image.
+
 ### Workout Models
 
 | Method | Endpoint | Description |
@@ -853,6 +993,9 @@ Response shape:
 - `challenges`
 - `challengeProofs.files` and `challengeProofs.chunks` (GridFS)
 - `habits`
+- `StepTracker`
+- `CalorieTracker`
+- `CalorieIntake`
 - `NotificationPreferences`
 - `NotificationEvents`
 - `WorkoutModelCompletionHistory`
