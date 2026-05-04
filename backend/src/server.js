@@ -3,6 +3,7 @@ import http from 'http';
 import { Server as IOServer } from 'socket.io';
 import app from './app.js';
 import connectDB from './config/db.js';
+import { runNotificationSweep } from './services/notificationService.js';
 
 dotenv.config();
 
@@ -24,6 +25,12 @@ const startServer = async () => {
   io.on('connection', (socket) => {
     console.log('Socket connected:', socket.id);
 
+    socket.on('join-user', ({ userId }) => {
+      if (userId) {
+        socket.join(`user:${String(userId)}`);
+      }
+    });
+
     socket.on('join', ({ buddyPairId }) => {
       if (buddyPairId) {
         socket.join(String(buddyPairId));
@@ -42,6 +49,16 @@ const startServer = async () => {
 
   // make io available to request handlers via req.app.get('io')
   app.set('io', io);
+
+  void runNotificationSweep(io).catch((error) => {
+    console.error('Initial notification sweep failed:', error);
+  });
+
+  setInterval(() => {
+    void runNotificationSweep(io).catch((error) => {
+      console.error('Notification sweep failed:', error);
+    });
+  }, 15 * 60 * 1000);
 
   const listenWithPortFallback = (port, retriesLeft) => {
     server.listen(port, () => {

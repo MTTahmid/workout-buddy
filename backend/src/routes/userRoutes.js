@@ -59,6 +59,10 @@ import {
   getWidgetConfig,
   saveWidgetConfig,
   getWidgetData,
+  getNotificationPreferences,
+  saveNotificationPreferences,
+  getNotificationFeed,
+  markNotificationRead,
 } from '../controllers/userController.js';
 import proofUpload from '../middleware/proofUpload.js';
 import imageUpload from '../middleware/imageUpload.js';
@@ -131,6 +135,10 @@ router.patch('/:id/chat/:buddyPairId/messages/read', markChatMessagesRead);
 router.get('/:id/widget-config', getWidgetConfig);
 router.post('/:id/widget-config', saveWidgetConfig);
 router.get('/:id/widget-data', getWidgetData);
+router.get('/:id/notification-settings', getNotificationPreferences);
+router.post('/:id/notification-settings', saveNotificationPreferences);
+router.get('/:id/notifications', getNotificationFeed);
+router.patch('/:id/notifications/:notificationId/read', markNotificationRead);
 /*
 bet has to connection to the points yet
 */
