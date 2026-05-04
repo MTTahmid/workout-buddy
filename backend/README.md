@@ -30,6 +30,7 @@ backend/
     │   ├── BuddyPair.js
     │   ├── BuddyWorkout.js
     │   ├── BuddyChallenge.js
+	│   ├── Habit.js
     │   ├── CalorieTracker.js
     │   ├── Challenge.js
     │   ├── ActiveWorkoutModelSession.js
@@ -273,6 +274,56 @@ Response includes:
 
 **Realtime:** Server emits `chat:message` (Socket.IO) to the buddy pair room when a new message is created. The Socket.IO instance is exposed via `req.app.get('io')`.
 
+### Habit Tracker
+
+| Method | Endpoint | Description |
+| ------ | -------- | ----------- |
+| GET | `/user/habits/library` | Get predefined good and bad habit suggestions |
+| GET | `/user/:id/habits` | Get user's habits and the last 7 weeks of weekly progress tables |
+| POST | `/user/:id/habits` | Create a habit and set its weekly goal mode |
+| POST | `/user/:id/habits/:habitId/log` | Log a habit occurrence for the current week |
+| PUT | `/user/:id/habits/:habitId/goal` | Update habit name, category, goal mode, or target count |
+| DELETE | `/user/:id/habits/:habitId` | Delete a habit |
+
+#### `GET /user/:id/habits`
+
+- Returns `goodHabits` and `badHabits` tables.
+- Each habit includes `weeklyProgress` for the last 7 weeks.
+- Good habits are green when the week target is met.
+- Bad habits are green when the habit is avoided for the week.
+
+#### `POST /user/:id/habits`
+
+Request body:
+
+```json
+{
+	"name": "Drink 8 glasses of water",
+	"category": "good",
+	"goalType": "do",
+	"targetCount": 1,
+	"source": "custom"
+}
+```
+
+#### `POST /user/:id/habits/:habitId/log`
+
+- Adds one occurrence to the habit's log history.
+- Use this when the good habit was completed or the bad habit happened.
+
+#### `PUT /user/:id/habits/:habitId/goal`
+
+- Updates the habit's label or weekly goal settings.
+- If `goalType` is `avoid`, `targetCount` defaults to `0`.
+- If `goalType` is `do`, `targetCount` defaults to `1`.
+
+#### Manual verification
+
+1. `GET /user/habits/library` to pick a predefined good or bad habit.
+2. `POST /user/:id/habits` to create one good habit and one bad habit.
+3. `POST /user/:id/habits/:habitId/log` to add habit activity for the current week.
+4. `GET /user/:id/habits` to verify the last 7 weekly rows turn green for success and red for failure.
+
 ### Weekly Goals
 
 | Method | Endpoint | Description |
@@ -472,6 +523,7 @@ Returns array of calorie tracking entries with metrics like weight, goal, workou
 - `bets`
 - `challenges`
 - `challengeProofs.files` and `challengeProofs.chunks` (GridFS)
+- `habits`
 
 ## Notes
 

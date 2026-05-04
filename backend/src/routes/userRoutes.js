@@ -15,6 +15,12 @@ import {
   getAllowedStakes,
   addWeeklyGoalStake,
   updateWeeklyGoal,
+  getHabitLibrary,
+  getUserHabits,
+  createHabit,
+  logHabitOccurrence,
+  updateHabitGoal,
+  deleteHabit,
   createBuddyChallenge,
   getBuddyChallenges,
   submitBuddyChallengeProof,
@@ -66,6 +72,7 @@ router.post('/auth/login', login);
 router.get('/weekly-goals/allowed-stakes', getAllowedStakes);
 router.get('/:id/weekly-goals/allowed-stakes', getAllowedStakes); //just added
 router.post('/:id/weekly-goals/allowed-stakes', addWeeklyGoalStake); //just added
+router.get('/habits/library', getHabitLibrary);
 router.get('/:id/pairing-code', fetchPairingCode);
 router.put('/:id/buddy/:pairingCode', buddyUp);
 router.get('/:id/buddy', getBuddyInfo);
@@ -75,6 +82,11 @@ router.get('/:id/weekly-workout-routine', getWeeklyWorkoutRoutine);
 router.get('/:id/history', getUserHistory);
 router.get('/:id/challenge-photos', getChallengePhotos);
 router.get('/:id/current-stakes', getCurrentStakes);
+router.get('/:id/habits', getUserHabits);
+router.post('/:id/habits', createHabit);
+router.post('/:id/habits/:habitId/log', logHabitOccurrence);
+router.put('/:id/habits/:habitId/goal', updateHabitGoal);
+router.delete('/:id/habits/:habitId', deleteHabit);
 router.post('/:id/weekly-goals', updateWeeklyGoal); //just added
 router.get('/:id/challenges', getBuddyChallenges);
 router.post('/:id/challenges', createBuddyChallenge);
