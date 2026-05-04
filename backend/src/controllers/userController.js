@@ -11,6 +11,7 @@ import ActiveWorkoutModelSession from '../models/ActiveWorkoutModelSession.js';
 import WMCompletionHistory from '../models/WMCompletionHistory.js';
 import UserFitness from '../models/UserFitness.js';
 import StepTracker from '../models/StepTracker.js';
+import ChatMessage from '../models/ChatMessage.js';
 import {
   getProofDownloadStream,
   uploadProofToGridFS,
@@ -3673,4 +3674,40 @@ function calculateDistance(steps, length)
 function calculateActiveMin(steps)
 {
   return Math.floor(steps/100);
+}
+
+function sendChatPlaceholder(res, action) {
+  return res.status(501).json({
+    message: `Chat ${action} is scaffolded but not implemented yet`,
+  });
+}
+
+export async function getChatMessages(req, res) {
+  try {
+    const { buddyPairId } = req.params;
+
+    if (!mongoose.isValidObjectId(buddyPairId)) {
+      return res.status(400).json({ message: 'Invalid buddy pair id' });
+    }
+
+    const messages = await ChatMessage.find({ buddyPairId })
+      .sort({ createdAt: 1 })
+      .limit(50);
+
+    return res.status(200).json({
+      buddyPairId,
+      messages,
+      note: 'Placeholder chat route. Message persistence will be added next.',
+    });
+  } catch (error) {
+    return res.status(500).json({ message: 'Failed to fetch chat messages' });
+  }
+}
+
+export async function sendChatMessage(req, res) {
+  return sendChatPlaceholder(res, 'message sending');
+}
+
+export async function markChatMessagesRead(req, res) {
+  return sendChatPlaceholder(res, 'read tracking');
 }
