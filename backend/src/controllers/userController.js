@@ -3682,32 +3682,102 @@ function sendChatPlaceholder(res, action) {
   });
 }
 
+async function verifyUserInBuddyPair(userId, buddyPairId) {
+  if (!mongoose.isValidObjectId(userId) || !mongoose.isValidObjectId(buddyPairId)) {
+    return false;
+  }
+
+  const pair = await BuddyPair.findOne({ _id: buddyPairId, members: userId, status: 'active' }).select('_id');
+  return Boolean(pair);
+}
+
 export async function getChatMessages(req, res) {
   try {
-    const { buddyPairId } = req.params;
+    const { id, buddyPairId } = req.params;
 
-    if (!mongoose.isValidObjectId(buddyPairId)) {
-      return res.status(400).json({ message: 'Invalid buddy pair id' });
+    if (!mongoose.isValidObjectId(id) || !mongoose.isValidObjectId(buddyPairId)) {
+      return res.status(400).json({ message: 'Invalid user id or buddy pair id' });
     }
 
-    const messages = await ChatMessage.find({ buddyPairId })
-      .sort({ createdAt: 1 })
-      .limit(50);
+    const userExists = await Users.exists({ _id: id });
+    if (!userExists) return res.status(404).json({ message: 'User not found' });
 
-    return res.status(200).json({
-      buddyPairId,
-      messages,
-      note: 'Placeholder chat route. Message persistence will be added next.',
-    });
+    const isMember = await verifyUserInBuddyPair(id, buddyPairId);
+    if (!isMember) return res.status(403).json({ message: 'User is not a member of this buddy pair' });
+
+    const limit = Math.min(Number(req.query.limit) || 50, 200);
+    const before = req.query.before ? new Date(req.query.before) : null;
+    const after = req.query.after ? new Date(req.query.after) : null;
+
+    const filter = { buddyPairId };
+    if (before && !Number.isNaN(before.getTime())) filter.createdAt = { ...(filter.createdAt || {}), $lt: before };
+    if (after && !Number.isNaN(after.getTime())) filter.createdAt = { ...(filter.createdAt || {}), $gt: after };
+
+    const messages = await ChatMessage.find(filter).sort({ createdAt: 1 }).limit(limit).lean();
+
+    return res.status(200).json({ buddyPairId, messages });
   } catch (error) {
+    console.error('getChatMessages error:', error);
     return res.status(500).json({ message: 'Failed to fetch chat messages' });
   }
 }
 
 export async function sendChatMessage(req, res) {
-  return sendChatPlaceholder(res, 'message sending');
+  try {
+    const { id, buddyPairId } = req.params;
+    const { text } = req.body || {};
+
+    if (!mongoose.isValidObjectId(id) || !mongoose.isValidObjectId(buddyPairId)) {
+      return res.status(400).json({ message: 'Invalid user id or buddy pair id' });
+    }
+
+    const user = await Users.findById(id).select('_id name');
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    const isMember = await verifyUserInBuddyPair(id, buddyPairId);
+    if (!isMember) return res.status(403).json({ message: 'User is not a member of this buddy pair' });
+
+    const message = await ChatMessage.create({
+      buddyPairId,
+      senderId: id,
+      text: typeof text === 'string' ? text.trim() : '',
+    });
+
+    // emit realtime event if socket server is available
+    try {
+      const io = req.app?.get('io');
+      if (io) io.to(String(buddyPairId)).emit('chat:message', message);
+    } catch (emitErr) {
+      console.warn('Failed to emit socket event:', emitErr && emitErr.message);
+    }
+
+    return res.status(201).json({ message });
+  } catch (error) {
+    console.error('sendChatMessage error:', error);
+    return res.status(500).json({ message: 'Failed to send message' });
+  }
 }
 
 export async function markChatMessagesRead(req, res) {
-  return sendChatPlaceholder(res, 'read tracking');
+  try {
+    const { id, buddyPairId } = req.params;
+
+    if (!mongoose.isValidObjectId(id) || !mongoose.isValidObjectId(buddyPairId)) {
+      return res.status(400).json({ message: 'Invalid user id or buddy pair id' });
+    }
+
+    const isMember = await verifyUserInBuddyPair(id, buddyPairId);
+    if (!isMember) return res.status(403).json({ message: 'User is not a member of this buddy pair' });
+
+    const now = new Date();
+    const result = await ChatMessage.updateMany(
+      { buddyPairId, senderId: { $ne: id }, readAt: null },
+      { $set: { readAt: now } }
+    );
+
+    return res.status(200).json({ modifiedCount: result.modifiedCount || result.nModified || 0 });
+  } catch (error) {
+    console.error('markChatMessagesRead error:', error);
+    return res.status(500).json({ message: 'Failed to mark messages read' });
+  }
 }
