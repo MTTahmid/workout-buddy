@@ -14,6 +14,8 @@ import StepTracker from '../models/StepTracker.js';
 import ChatMessage from '../models/ChatMessage.js';
 import Habit from '../models/Habit.js';
 import WidgetConfig from '../models/WidgetConfig.js';
+import NotificationPreference from '../models/NotificationPreference.js';
+import NotificationEvent from '../models/NotificationEvent.js';
 import {
   getProofDownloadStream,
   uploadProofToGridFS,
@@ -4507,5 +4509,151 @@ export async function getWidgetData(req, res) {
   } catch (error) {
     console.error('getWidgetData error:', error);
     return res.status(500).json({ message: 'Failed to fetch widget data' });
+  }
+}
+
+function buildDefaultNotificationPreferences(userId) {
+  return {
+    userId,
+    enabled: true,
+    types: {
+      streak: true,
+      steps: true,
+      goals: true,
+      habits: false,
+    },
+    frequencyMinutes: 720,
+    quietHours: {
+      enabled: false,
+      start: '22:00',
+      end: '07:00',
+      timezone: 'UTC',
+    },
+    inactivityDays: 2,
+    tone: 'encouraging',
+    deviceTokens: [],
+  };
+}
+
+export async function getNotificationPreferences(req, res) {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ message: 'Invalid user id' });
+    }
+
+    let preferences = await NotificationPreference.findOne({ userId: id }).lean();
+
+    if (!preferences) {
+      preferences = buildDefaultNotificationPreferences(id);
+    }
+
+    return res.status(200).json(preferences);
+  } catch (error) {
+    console.error('getNotificationPreferences error:', error);
+    return res.status(500).json({ message: 'Failed to load notification preferences' });
+  }
+}
+
+export async function saveNotificationPreferences(req, res) {
+  try {
+    const { id } = req.params;
+    const {
+      enabled,
+      types,
+      frequencyMinutes,
+      quietHours,
+      inactivityDays,
+      tone,
+      deviceTokens,
+    } = req.body;
+
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ message: 'Invalid user id' });
+    }
+
+    const userExists = await Users.exists({ _id: id });
+    if (!userExists) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    const preferences = await NotificationPreference.findOneAndUpdate(
+      { userId: id },
+      {
+        userId: id,
+        enabled: typeof enabled === 'boolean' ? enabled : true,
+        types: {
+          streak: Boolean(types?.streak ?? true),
+          steps: Boolean(types?.steps ?? true),
+          goals: Boolean(types?.goals ?? true),
+          habits: Boolean(types?.habits ?? false),
+        },
+        frequencyMinutes: Number.isFinite(Number(frequencyMinutes)) ? Number(frequencyMinutes) : 720,
+        quietHours: {
+          enabled: Boolean(quietHours?.enabled ?? false),
+          start: typeof quietHours?.start === 'string' && quietHours.start.trim() ? quietHours.start.trim() : '22:00',
+          end: typeof quietHours?.end === 'string' && quietHours.end.trim() ? quietHours.end.trim() : '07:00',
+          timezone: typeof quietHours?.timezone === 'string' && quietHours.timezone.trim() ? quietHours.timezone.trim() : 'UTC',
+        },
+        inactivityDays: Number.isFinite(Number(inactivityDays)) ? Number(inactivityDays) : 2,
+        tone: ['friendly', 'direct', 'encouraging'].includes(tone) ? tone : 'encouraging',
+        deviceTokens: Array.isArray(deviceTokens)
+          ? [...new Set(deviceTokens.map((token) => (typeof token === 'string' ? token.trim() : '')).filter(Boolean))]
+          : [],
+      },
+      { upsert: true, new: true }
+    );
+
+    return res.status(200).json({ message: 'Notification preferences saved', preferences });
+  } catch (error) {
+    console.error('saveNotificationPreferences error:', error);
+    return res.status(500).json({ message: 'Failed to save notification preferences' });
+  }
+}
+
+export async function getNotificationFeed(req, res) {
+  try {
+    const { id } = req.params;
+    const limit = Math.min(Math.max(Number(req.query.limit) || 20, 1), 100);
+
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ message: 'Invalid user id' });
+    }
+
+    const notifications = await NotificationEvent.find({ userId: id })
+      .sort({ scheduledFor: -1 })
+      .limit(limit)
+      .lean();
+
+    return res.status(200).json({ userId: id, count: notifications.length, notifications });
+  } catch (error) {
+    console.error('getNotificationFeed error:', error);
+    return res.status(500).json({ message: 'Failed to load notifications' });
+  }
+}
+
+export async function markNotificationRead(req, res) {
+  try {
+    const { id, notificationId } = req.params;
+
+    if (!mongoose.isValidObjectId(id) || !mongoose.isValidObjectId(notificationId)) {
+      return res.status(400).json({ message: 'Invalid identifier' });
+    }
+
+    const notification = await NotificationEvent.findOneAndUpdate(
+      { _id: notificationId, userId: id },
+      { $set: { readAt: new Date(), status: 'read' } },
+      { new: true }
+    );
+
+    if (!notification) {
+      return res.status(404).json({ message: 'Notification not found' });
+    }
+
+    return res.status(200).json({ message: 'Notification marked as read', notification });
+  } catch (error) {
+    console.error('markNotificationRead error:', error);
+    return res.status(500).json({ message: 'Failed to update notification' });
   }
 }
