@@ -16,6 +16,7 @@ import Habit from '../models/Habit.js';
 import WidgetConfig from '../models/WidgetConfig.js';
 import NotificationPreference from '../models/NotificationPreference.js';
 import NotificationEvent from '../models/NotificationEvent.js';
+import { buildPerformanceSummary } from '../services/performanceService.js';
 import {
   getProofDownloadStream,
   uploadProofToGridFS,
@@ -4655,5 +4656,26 @@ export async function markNotificationRead(req, res) {
   } catch (error) {
     console.error('markNotificationRead error:', error);
     return res.status(500).json({ message: 'Failed to update notification' });
+  }
+}
+
+export async function getPerformanceSummary(req, res) {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ message: 'Invalid user id' });
+    }
+
+    const summary = await buildPerformanceSummary(id);
+
+    if (!summary) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    return res.status(200).json(summary);
+  } catch (error) {
+    console.error('getPerformanceSummary error:', error);
+    return res.status(500).json({ message: 'Failed to build performance summary' });
   }
 }
