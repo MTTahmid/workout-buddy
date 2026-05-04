@@ -46,6 +46,9 @@ import {
   getStepHistory,
   resetDailySteps,
   updateStepGoal,
+  getChatMessages,
+  sendChatMessage,
+  markChatMessagesRead,
 } from '../controllers/userController.js';
 import proofUpload from '../middleware/proofUpload.js';
 import imageUpload from '../middleware/imageUpload.js';
@@ -105,6 +108,9 @@ router.post('/:id/steps/log', logSteps);
 router.get('/:id/steps/history', getStepHistory);
 router.post('/:id/steps/reset', resetDailySteps);
 router.put('/:id/steps/goal', updateStepGoal);
+router.get('/:id/chat/:buddyPairId/messages', getChatMessages);
+router.post('/:id/chat/:buddyPairId/messages', sendChatMessage);
+router.patch('/:id/chat/:buddyPairId/messages/read', markChatMessagesRead);
 /*
 bet has to connection to the points yet
 */

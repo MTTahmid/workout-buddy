@@ -263,6 +263,16 @@ Response includes:
 - active or most recent weekly goal details
 - user score snapshot from active buddy pair (`points`, `penalties`)
 
+### Chat
+
+| Method | Endpoint | Description |
+| ------ | -------- | ----------- |
+| GET | `/user/:id/chat/:buddyPairId/messages` | Fetch messages for a buddy pair (validates that `:id` is a member). Supports `limit`, `before`, `after` query params. |
+| POST | `/user/:id/chat/:buddyPairId/messages` | Send a text message as `:id` to the buddy pair. Body: JSON `{ "text": "..." }`. |
+| PATCH | `/user/:id/chat/:buddyPairId/messages/read` | Mark unread messages from other members as read for this user. |
+
+**Realtime:** Server emits `chat:message` (Socket.IO) to the buddy pair room when a new message is created. The Socket.IO instance is exposed via `req.app.get('io')`.
+
 ### Weekly Goals
 
 | Method | Endpoint | Description |
