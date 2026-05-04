@@ -16,6 +16,7 @@ import Habit from '../models/Habit.js';
 import WidgetConfig from '../models/WidgetConfig.js';
 import NotificationPreference from '../models/NotificationPreference.js';
 import NotificationEvent from '../models/NotificationEvent.js';
+import ModerationReport from '../models/ModerationReport.js';
 import { buildPerformanceSummary } from '../services/performanceService.js';
 import {
   getProofDownloadStream,
@@ -429,11 +430,21 @@ export async function signup(req, res) {
     const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
     const email = normalizeEmail(req.body?.email);
     const password = typeof req.body?.password === 'string' ? req.body.password : '';
+    const requestedRole = typeof req.body?.role === 'string' ? req.body.role.trim().toLowerCase() : 'user';
+    const adminKey = typeof req.body?.adminKey === 'string' ? req.body.adminKey : '';
 
     if (!name || !email || !password) {
       return res.status(400).json({
         message: 'name, email, and password are required',
       });
+    }
+
+    if (!['user', 'admin'].includes(requestedRole)) {
+      return res.status(400).json({ message: 'role must be user or admin' });
+    }
+
+    if (requestedRole === 'admin' && adminKey !== (process.env.ADMIN_CREATION_KEY || '')) {
+      return res.status(403).json({ message: 'Admin signup is not allowed' });
     }
 
     const existingUser = await Users.findOne({ email });
@@ -446,6 +457,7 @@ export async function signup(req, res) {
       email,
       // temporary
       passwordHash: password,
+      role: requestedRole,
     });
 
     return res.status(201).json({
@@ -454,6 +466,8 @@ export async function signup(req, res) {
         id: newUser._id,
         name: newUser.name,
         email: newUser.email,
+        role: newUser.role,
+        moderationStatus: newUser.moderationStatus,
       },
     });
   } catch (error) {
@@ -479,12 +493,21 @@ export async function login(req, res) {
       return res.status(401).json({ message: 'Invalid email or password' });
     }
 
+    if (user.moderationStatus?.status === 'suspended') {
+      return res.status(403).json({
+        message: 'Account suspended',
+        moderationStatus: user.moderationStatus,
+      });
+    }
+
     return res.status(200).json({
       message: 'Login successful',
       user: {
         id: user._id,
         name: user.name,
         email: user.email,
+        role: user.role,
+        moderationStatus: user.moderationStatus,
       },
     });
   } catch (error) {
@@ -4677,5 +4700,372 @@ export async function getPerformanceSummary(req, res) {
   } catch (error) {
     console.error('getPerformanceSummary error:', error);
     return res.status(500).json({ message: 'Failed to build performance summary' });
+  }
+}
+
+async function loadAdminUser(adminId) {
+  if (!mongoose.isValidObjectId(adminId)) {
+    return null;
+  }
+
+  const adminUser = await Users.findById(adminId).select('_id name email role moderationStatus').lean();
+  if (!adminUser || adminUser.role !== 'admin') {
+    return null;
+  }
+
+  const status = adminUser.moderationStatus?.status || 'active';
+  if (status !== 'active') {
+    return null;
+  }
+
+  return adminUser;
+}
+
+function normalizeEvidenceList(evidence) {
+  if (Array.isArray(evidence)) {
+    return evidence.map((entry) => (typeof entry === 'string' ? entry.trim() : '')).filter(Boolean);
+  }
+
+  if (typeof evidence === 'string' && evidence.trim()) {
+    return [evidence.trim()];
+  }
+
+  return [];
+}
+
+function getModerationOutcome(action, durationDays) {
+  const now = new Date();
+
+  switch (action) {
+    case 'warn':
+      return {
+        reportStatus: 'resolved',
+        targetStatus: null,
+        outcome: 'User warned',
+        notificationTitle: 'Moderation warning',
+        notificationBody: 'A moderator reviewed the report and issued a warning.',
+      };
+    case 'restrict': {
+      const restrictedUntil = Number.isFinite(Number(durationDays)) && Number(durationDays) > 0
+        ? new Date(now.getTime() + (Number(durationDays) * 24 * 60 * 60 * 1000))
+        : new Date(now.getTime() + (3 * 24 * 60 * 60 * 1000));
+
+      return {
+        reportStatus: 'resolved',
+        targetStatus: {
+          status: 'restricted',
+          reason: 'Policy violation',
+          restrictedUntil,
+          suspendedUntil: null,
+          updatedAt: now,
+        },
+        outcome: `Account restricted until ${restrictedUntil.toISOString()}`,
+        notificationTitle: 'Account restricted',
+        notificationBody: 'Your account has been restricted due to a policy violation.',
+      };
+    }
+    case 'suspend':
+    case 'ban': {
+      const suspendedUntil = action === 'ban'
+        ? null
+        : (Number.isFinite(Number(durationDays)) && Number(durationDays) > 0
+          ? new Date(now.getTime() + (Number(durationDays) * 24 * 60 * 60 * 1000))
+          : null);
+
+      return {
+        reportStatus: 'resolved',
+        targetStatus: {
+          status: 'suspended',
+          reason: 'Policy violation',
+          restrictedUntil: null,
+          suspendedUntil,
+          updatedAt: now,
+        },
+        outcome: suspendedUntil
+          ? `Account suspended until ${suspendedUntil.toISOString()}`
+          : 'Account suspended indefinitely',
+        notificationTitle: 'Account suspended',
+        notificationBody: 'Your account has been suspended due to a policy violation.',
+      };
+    }
+    case 'dismiss':
+      return {
+        reportStatus: 'dismissed',
+        targetStatus: null,
+        outcome: 'Report dismissed',
+        notificationTitle: 'Report reviewed',
+        notificationBody: 'Your report was reviewed and dismissed.',
+      };
+    default:
+      return {
+        reportStatus: 'resolved',
+        targetStatus: null,
+        outcome: 'Report resolved',
+        notificationTitle: 'Report reviewed',
+        notificationBody: 'Your report was reviewed.',
+      };
+  }
+}
+
+async function notifyModerationOutcome({ report, adminUser, targetUser, reporterUser, outcome, session }) {
+  const notifications = [];
+
+  if (targetUser?._id) {
+    notifications.push({
+      userId: targetUser._id,
+      type: 'general',
+      title: outcome.notificationTitle,
+      body: outcome.notificationBody,
+      payload: {
+        kind: 'moderation-outcome',
+        reportId: report._id,
+        actionBy: adminUser?._id || null,
+        actionByName: adminUser?.name || null,
+        targetUserId: targetUser._id,
+      },
+      source: 'moderation',
+      scheduledFor: new Date(),
+      deliveredAt: new Date(),
+      status: 'delivered',
+    });
+  }
+
+  if (reporterUser?._id && String(reporterUser._id) !== String(targetUser?._id)) {
+    notifications.push({
+      userId: reporterUser._id,
+      type: 'general',
+      title: 'Report reviewed',
+      body: `Your report was reviewed. Outcome: ${outcome.outcome}.`,
+      payload: {
+        kind: 'moderation-report-reviewed',
+        reportId: report._id,
+        actionBy: adminUser?._id || null,
+        actionByName: adminUser?.name || null,
+        outcome: outcome.outcome,
+      },
+      source: 'moderation',
+      scheduledFor: new Date(),
+      deliveredAt: new Date(),
+      status: 'delivered',
+    });
+  }
+
+  if (notifications.length > 0) {
+    await NotificationEvent.create(notifications, { session });
+  }
+}
+
+export async function createModerationReport(req, res) {
+  try {
+    const { id } = req.params;
+    const {
+      targetUserId,
+      category,
+      targetContentType,
+      targetContentId,
+      description,
+      evidence,
+    } = req.body || {};
+
+    if (!mongoose.isValidObjectId(id) || !mongoose.isValidObjectId(targetUserId)) {
+      return res.status(400).json({ message: 'Invalid user id or target user id' });
+    }
+
+    const reporter = await Users.findById(id).select('_id role moderationStatus');
+    if (!reporter) {
+      return res.status(404).json({ message: 'Reporter not found' });
+    }
+
+    const targetUser = await Users.findById(targetUserId).select('_id name role');
+    if (!targetUser) {
+      return res.status(404).json({ message: 'Target user not found' });
+    }
+
+    const normalizedDescription = typeof description === 'string' ? description.trim() : '';
+    if (!normalizedDescription) {
+      return res.status(400).json({ message: 'description is required' });
+    }
+
+    const report = await ModerationReport.create({
+      reporterId: reporter._id,
+      targetUserId: targetUser._id,
+      targetContentType: ['behavior', 'message', 'challenge', 'habit', 'workout', 'profile', 'other'].includes(targetContentType)
+        ? targetContentType
+        : 'behavior',
+      targetContentId: typeof targetContentId === 'string' && targetContentId.trim() ? targetContentId.trim() : null,
+      category: ['harassment', 'spam', 'hate', 'abuse', 'fraud', 'inappropriate', 'other'].includes(category)
+        ? category
+        : 'other',
+      description: normalizedDescription,
+      evidence: normalizeEvidenceList(evidence),
+      status: 'open',
+      priority: 'medium',
+    });
+
+    return res.status(201).json({ message: 'Report submitted', report });
+  } catch (error) {
+    console.error('createModerationReport error:', error);
+    return res.status(500).json({ message: 'Failed to submit report' });
+  }
+}
+
+export async function getModerationReports(req, res) {
+  try {
+    const { adminId } = req.params;
+    const status = typeof req.query.status === 'string' && req.query.status.trim() ? req.query.status.trim() : null;
+    const limit = Math.min(Math.max(Number(req.query.limit) || 25, 1), 100);
+
+    const adminUser = await loadAdminUser(adminId);
+    if (!adminUser) {
+      return res.status(403).json({ message: 'Admin access required' });
+    }
+
+    const filter = {};
+    if (status && ['open', 'under_review', 'resolved', 'dismissed'].includes(status)) {
+      filter.status = status;
+    }
+
+    const reports = await ModerationReport.find(filter)
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .populate('reporterId', '_id name email role')
+      .populate('targetUserId', '_id name email role moderationStatus')
+      .populate('reviewedBy', '_id name email role')
+      .lean();
+
+    return res.status(200).json({ adminId, count: reports.length, reports });
+  } catch (error) {
+    console.error('getModerationReports error:', error);
+    return res.status(500).json({ message: 'Failed to fetch moderation reports' });
+  }
+}
+
+export async function getModerationReport(req, res) {
+  try {
+    const { adminId, reportId } = req.params;
+
+    const adminUser = await loadAdminUser(adminId);
+    if (!adminUser) {
+      return res.status(403).json({ message: 'Admin access required' });
+    }
+
+    if (!mongoose.isValidObjectId(reportId)) {
+      return res.status(400).json({ message: 'Invalid report id' });
+    }
+
+    const report = await ModerationReport.findById(reportId)
+      .populate('reporterId', '_id name email role')
+      .populate('targetUserId', '_id name email role moderationStatus')
+      .populate('reviewedBy', '_id name email role')
+      .lean();
+
+    if (!report) {
+      return res.status(404).json({ message: 'Report not found' });
+    }
+
+    return res.status(200).json(report);
+  } catch (error) {
+    console.error('getModerationReport error:', error);
+    return res.status(500).json({ message: 'Failed to fetch moderation report' });
+  }
+}
+
+export async function reviewModerationReport(req, res) {
+  try {
+    const { adminId, reportId } = req.params;
+    const { action, note, durationDays } = req.body || {};
+
+    const adminUser = await loadAdminUser(adminId);
+    if (!adminUser) {
+      return res.status(403).json({ message: 'Admin access required' });
+    }
+
+    if (!mongoose.isValidObjectId(reportId)) {
+      return res.status(400).json({ message: 'Invalid report id' });
+    }
+
+    const normalizedAction = typeof action === 'string' ? action.trim().toLowerCase() : '';
+    if (!['warn', 'restrict', 'suspend', 'ban', 'resolve', 'dismiss'].includes(normalizedAction)) {
+      return res.status(400).json({ message: 'Invalid action' });
+    }
+
+    const session = await mongoose.startSession();
+    let responseReport = null;
+    let responseTargetUser = null;
+
+    try {
+      await session.withTransaction(async () => {
+        const report = await ModerationReport.findById(reportId).session(session);
+        if (!report) {
+          const notFoundError = new Error('Report not found');
+          notFoundError.statusCode = 404;
+          throw notFoundError;
+        }
+
+        const targetUser = await Users.findById(report.targetUserId).session(session);
+        if (!targetUser) {
+          const notFoundError = new Error('Target user not found');
+          notFoundError.statusCode = 404;
+          throw notFoundError;
+        }
+
+        const reporterUser = await Users.findById(report.reporterId).select('_id name email role').lean();
+        const now = new Date();
+        const outcome = getModerationOutcome(normalizedAction, durationDays);
+
+        if (outcome.targetStatus) {
+          targetUser.moderationStatus = outcome.targetStatus;
+          await targetUser.save({ session });
+        }
+
+        const previousStatus = report.status;
+        report.status = outcome.reportStatus;
+        report.reviewedBy = adminUser._id;
+        report.reviewedAt = now;
+        report.resolvedAt = now;
+        report.outcome = note && typeof note === 'string' && note.trim() ? note.trim() : outcome.outcome;
+        report.actions.push({
+          adminId: adminUser._id,
+          action: normalizedAction,
+          note: typeof note === 'string' ? note.trim() : '',
+          previousStatus,
+          nextStatus: report.status,
+          durationDays: Number.isFinite(Number(durationDays)) ? Number(durationDays) : null,
+          createdAt: now,
+        });
+
+        await report.save({ session });
+
+        await notifyModerationOutcome({
+          report,
+          adminUser,
+          targetUser,
+          reporterUser,
+          outcome,
+          session,
+        });
+
+        responseReport = report.toObject();
+        responseTargetUser = {
+          _id: targetUser._id,
+          role: targetUser.role,
+          moderationStatus: targetUser.moderationStatus,
+        };
+      });
+    } finally {
+      session.endSession();
+    }
+
+    return res.status(200).json({
+      message: 'Moderation report reviewed',
+      report: responseReport,
+      targetUser: responseTargetUser,
+    });
+  } catch (error) {
+    if (error?.statusCode) {
+      return res.status(error.statusCode).json({ message: error.message });
+    }
+    console.error('reviewModerationReport error:', error);
+    return res.status(500).json({ message: 'Failed to review moderation report' });
   }
 }

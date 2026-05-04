@@ -64,9 +64,14 @@ import {
   saveNotificationPreferences,
   getNotificationFeed,
   markNotificationRead,
+  createModerationReport,
+  getModerationReports,
+  getModerationReport,
+  reviewModerationReport,
 } from '../controllers/userController.js';
 import proofUpload from '../middleware/proofUpload.js';
 import imageUpload from '../middleware/imageUpload.js';
+import accountStatusGuard from '../middleware/accountStatus.js';
 
 const router = express.Router();
 
@@ -78,10 +83,14 @@ const router = express.Router();
 router.get('/users', getUsers);
 router.post('/auth/signup', signup);
 router.post('/auth/login', login);
+router.get('/admin/:adminId/reports', getModerationReports);
+router.get('/admin/:adminId/reports/:reportId', getModerationReport);
+router.patch('/admin/:adminId/reports/:reportId', reviewModerationReport);
 router.get('/weekly-goals/allowed-stakes', getAllowedStakes);
+router.get('/habits/library', getHabitLibrary);
+router.use('/:id', accountStatusGuard);
 router.get('/:id/weekly-goals/allowed-stakes', getAllowedStakes); //just added
 router.post('/:id/weekly-goals/allowed-stakes', addWeeklyGoalStake); //just added
-router.get('/habits/library', getHabitLibrary);
 router.get('/:id/pairing-code', fetchPairingCode);
 router.put('/:id/buddy/:pairingCode', buddyUp);
 router.get('/:id/buddy', getBuddyInfo);
@@ -92,6 +101,7 @@ router.get('/:id/history', getUserHistory);
 router.get('/:id/challenge-photos', getChallengePhotos);
 router.get('/:id/current-stakes', getCurrentStakes);
 router.get('/:id/calendar', getCalendarView);
+router.post('/:id/reports', createModerationReport);
 router.get('/:id/habits', getUserHabits);
 router.post('/:id/habits', createHabit);
 router.post('/:id/habits/:habitId/log', logHabitOccurrence);
