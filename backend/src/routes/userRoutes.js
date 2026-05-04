@@ -16,6 +16,7 @@ import {
   addWeeklyGoalStake,
   updateWeeklyGoal,
   getHabitLibrary,
+  getCalendarView,
   getUserHabits,
   createHabit,
   logHabitOccurrence,
@@ -82,6 +83,7 @@ router.get('/:id/weekly-workout-routine', getWeeklyWorkoutRoutine);
 router.get('/:id/history', getUserHistory);
 router.get('/:id/challenge-photos', getChallengePhotos);
 router.get('/:id/current-stakes', getCurrentStakes);
+router.get('/:id/calendar', getCalendarView);
 router.get('/:id/habits', getUserHabits);
 router.post('/:id/habits', createHabit);
 router.post('/:id/habits/:habitId/log', logHabitOccurrence);

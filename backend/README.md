@@ -223,6 +223,7 @@ Response:
 | GET | `/user/:id/history` | Get streak, total workouts, and weekly history summary for History view |
 | GET | `/user/:id/challenge-photos` | Get recent challenge proof photo metadata for dashboard carousel |
 | GET | `/user/:id/current-stakes` | Get current weekly stake details and user score snapshot |
+| GET | `/user/:id/calendar` | Get a calendar view with day buckets and all date-based activity for the selected month |
 
 #### `GET /user/:id/history`
 

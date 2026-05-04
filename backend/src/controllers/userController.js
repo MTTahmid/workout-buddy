@@ -4069,3 +4069,306 @@ export async function deleteHabit(req, res) {
     return res.status(500).json({ message: 'Failed to delete habit' });
   }
 }
+
+function getCalendarMonthWindow(monthValue = new Date()) {
+  const referenceDate = new Date(monthValue);
+  const start = new Date(referenceDate.getFullYear(), referenceDate.getMonth(), 1);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(referenceDate.getFullYear(), referenceDate.getMonth() + 1, 0);
+  end.setHours(23, 59, 59, 999);
+  return { start, end };
+}
+
+function getDateKey(date) {
+  const day = new Date(date);
+  const year = day.getFullYear();
+  const month = String(day.getMonth() + 1).padStart(2, '0');
+  const datePart = String(day.getDate()).padStart(2, '0');
+  return `${year}-${month}-${datePart}`;
+}
+
+function buildCalendarDays(start, end) {
+  const days = [];
+  const dayCursor = new Date(start);
+
+  while (dayCursor <= end) {
+    const dateKey = getDateKey(dayCursor);
+    days.push({
+      date: new Date(dayCursor),
+      dateKey,
+      items: [],
+      counts: {
+        workouts: 0,
+        habits: 0,
+        calories: 0,
+        steps: 0,
+        goals: 0,
+        challenges: 0,
+        sessions: 0,
+      },
+    });
+    dayCursor.setDate(dayCursor.getDate() + 1);
+  }
+
+  return days;
+}
+
+function addCalendarItem(dayMap, date, item) {
+  if (!date) {
+    return;
+  }
+
+  const dayKey = getDateKey(date);
+  const bucket = dayMap.get(dayKey);
+
+  if (!bucket) {
+    return;
+  }
+
+  bucket.items.push(item);
+
+  if (item.group && bucket.counts[item.group] !== undefined) {
+    bucket.counts[item.group] += 1;
+  }
+}
+
+function summarizeCalendarDays(days) {
+  return days.map((day) => ({
+    date: day.date,
+    dateKey: day.dateKey,
+    items: day.items.sort((a, b) => new Date(a.date || a.startDate || 0) - new Date(b.date || b.startDate || 0)),
+    counts: day.counts,
+  }));
+}
+
+export async function getCalendarView(req, res) {
+  try {
+    const { id } = req.params;
+    const monthParam = typeof req.query.month === 'string' && req.query.month.trim() ? req.query.month.trim() : null;
+    const referenceMonth = monthParam ? new Date(`${monthParam}-01T00:00:00.000Z`) : new Date();
+
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ message: 'Invalid user id' });
+    }
+
+    if (Number.isNaN(referenceMonth.getTime())) {
+      return res.status(400).json({ message: 'Invalid month value. Use YYYY-MM.' });
+    }
+
+    const userExists = await Users.exists({ _id: id });
+    if (!userExists) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    const { start, end } = getCalendarMonthWindow(referenceMonth);
+    const days = buildCalendarDays(start, end);
+    const dayMap = new Map(days.map((day) => [day.dateKey, day]));
+
+    const [stepTracker, calorieIntakes, calorieTrackers, habits, weeklyGoals, buddyChallenges, buddyPairs, workoutSessions] = await Promise.all([
+      StepTracker.findOne({ userId: id }).lean(),
+      CalorieIntake.find({ userId: id, date: { $gte: start, $lte: end } }).sort({ date: 1 }).lean(),
+      CalorieTracker.find({ userId: id, date: { $gte: start, $lte: end } }).sort({ date: 1 }).lean(),
+      Habit.find({ userId: id, isActive: true }).lean(),
+      WeeklyGoal.find({ participants: id }).sort({ startDate: 1 }).lean(),
+      BuddyChallenge.find({ $or: [{ challenger: id }, { target: id }] }).sort({ createdAt: 1 }).lean(),
+      BuddyPair.find({ members: id }).select('_id').lean(),
+      ActiveWorkoutModelSession.find({ userId: id, startTime: { $gte: start, $lte: end } }).sort({ startTime: 1 }).lean(),
+    ]);
+
+    const buddyPairIds = buddyPairs.map((pair) => pair._id);
+    const buddyWorkouts = buddyPairIds.length > 0
+      ? await BuddyWorkout.find({ buddyPairId: { $in: buddyPairIds } }).lean()
+      : [];
+
+    for (const entry of stepTracker?.dailyHistory || []) {
+      const entryDate = new Date(entry.date);
+      if (entryDate >= start && entryDate <= end) {
+        addCalendarItem(dayMap, entryDate, {
+          group: 'steps',
+          type: 'step_goal',
+          title: `Steps: ${entry.steps || 0}`,
+          status: entry.goalMet ? 'green' : 'red',
+          date: entryDate,
+          meta: {
+            steps: entry.steps || 0,
+            distance: entry.distance || 0,
+            caloriesBurned: entry.caloriesBurned || 0,
+            activeMinutes: entry.activeMinutes || 0,
+            goalMet: Boolean(entry.goalMet),
+          },
+        });
+      }
+    }
+
+    for (const entry of calorieIntakes) {
+      const entryDate = new Date(entry.date);
+      addCalendarItem(dayMap, entryDate, {
+        group: 'calories',
+        type: 'calorie_intake',
+        title: entry.foodName,
+        status: 'info',
+        date: entryDate,
+        meta: {
+          intakeCalories: entry.intakeCalories,
+          grams: entry.grams,
+          quantity: entry.quantity,
+          source: entry.source,
+        },
+      });
+    }
+
+    for (const entry of calorieTrackers) {
+      const entryDate = new Date(entry.date);
+      addCalendarItem(dayMap, entryDate, {
+        group: 'calories',
+        type: 'calorie_tracker',
+        title: `Calorie log: ${entry.workout}`,
+        status: entry.goalmet ? 'green' : 'red',
+        date: entryDate,
+        meta: {
+          weight: entry.weight,
+          goal: entry.goal,
+          workout: entry.workout,
+          duration: entry.duration,
+          calories: entry.calories,
+          goalmet: Boolean(entry.goalmet),
+        },
+      });
+    }
+
+    for (const habit of habits) {
+      for (const log of habit.logs || []) {
+        const logDate = new Date(log.loggedAt || log.createdAt || new Date());
+        if (logDate >= start && logDate <= end) {
+          addCalendarItem(dayMap, logDate, {
+            group: 'habits',
+            type: habit.category === 'bad' ? 'bad_habit' : 'good_habit',
+            title: habit.name,
+            status: habit.category === 'bad' ? 'red' : 'green',
+            date: logDate,
+            meta: {
+              note: log.note || null,
+              goalType: habit.goalType,
+              category: habit.category,
+              source: habit.source,
+            },
+          });
+        }
+      }
+    }
+
+    for (const goal of weeklyGoals) {
+      if (goal.startDate) {
+        addCalendarItem(dayMap, goal.startDate, {
+          group: 'goals',
+          type: 'weekly_goal_start',
+          title: `Weekly goal starts: ${goal.weeklyWorkoutGoal}`,
+          status: 'info',
+          date: goal.startDate,
+          meta: {
+            weeklyWorkoutGoal: goal.weeklyWorkoutGoal,
+            stake: goal.stake,
+            goalId: goal._id,
+          },
+        });
+      }
+
+      if (goal.endDate) {
+        addCalendarItem(dayMap, goal.endDate, {
+          group: 'goals',
+          type: 'weekly_goal_end',
+          title: `Weekly goal ends: ${goal.weeklyWorkoutGoal}`,
+          status: 'info',
+          date: goal.endDate,
+          meta: {
+            weeklyWorkoutGoal: goal.weeklyWorkoutGoal,
+            stake: goal.stake,
+            goalId: goal._id,
+          },
+        });
+      }
+    }
+
+    for (const challenge of buddyChallenges) {
+      if (challenge.createdAt) {
+        addCalendarItem(dayMap, challenge.createdAt, {
+          group: 'challenges',
+          type: 'challenge_created',
+          title: `Challenge: ${challenge.workoutType}`,
+          status: challenge.status === 'approved' ? 'green' : challenge.status === 'rejected' ? 'red' : 'info',
+          date: challenge.createdAt,
+          meta: {
+            challengeId: challenge._id,
+            points: challenge.points,
+            deadline: challenge.deadline,
+            challengeStatus: challenge.status,
+          },
+        });
+      }
+
+      if (challenge.deadline) {
+        addCalendarItem(dayMap, challenge.deadline, {
+          group: 'challenges',
+          type: 'challenge_deadline',
+          title: `Challenge deadline: ${challenge.workoutType}`,
+          status: challenge.status === 'approved' ? 'green' : challenge.status === 'rejected' ? 'red' : 'red',
+          date: challenge.deadline,
+          meta: {
+            challengeId: challenge._id,
+            points: challenge.points,
+            challengeStatus: challenge.status,
+          },
+        });
+      }
+    }
+
+    for (const session of workoutSessions) {
+      if (session.startTime) {
+        addCalendarItem(dayMap, session.startTime, {
+          group: 'sessions',
+          type: 'workout_session',
+          title: 'Workout session',
+          status: 'info',
+          date: session.startTime,
+          meta: {
+            sessionId: session._id,
+            modelId: session.modelId,
+            progressCount: Array.isArray(session.progress) ? session.progress.length : 0,
+          },
+        });
+      }
+    }
+
+    for (const buddyWorkout of buddyWorkouts) {
+      for (const entry of buddyWorkout.weeklyHistory || []) {
+        const entryDate = new Date(entry.date);
+        if (entryDate >= start && entryDate <= end) {
+          addCalendarItem(dayMap, entryDate, {
+            group: 'workouts',
+            type: 'buddy_weekly_workout',
+            title: `Weekly workout entries: ${(entry.workouts || []).length}`,
+            status: (entry.workouts || []).length > 0 ? 'green' : 'red',
+            date: entryDate,
+            meta: {
+              buddyPairId: buddyWorkout.buddyPairId,
+              workoutCount: (entry.workouts || []).length,
+            },
+          });
+        }
+      }
+    }
+
+    return res.status(200).json({
+      userId: id,
+      month: getDateKey(start).slice(0, 7),
+      range: {
+        startDate: start,
+        endDate: end,
+      },
+      days: summarizeCalendarDays(days),
+    });
+  } catch (error) {
+    console.error('getCalendarView error:', error);
+    return res.status(500).json({ message: 'Failed to build calendar view' });
+  }
+}
