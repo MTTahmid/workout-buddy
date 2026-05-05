@@ -22,4 +22,4 @@ const explicitBaseUrl = process.env.EXPO_PUBLIC_API_URL;
 const expoHost = resolveExpoHost();
 
 export const API_BASE_URL =
-	explicitBaseUrl || (expoHost ? `http://${expoHost}:5000` : "http://localhost:5000");
+	explicitBaseUrl || (expoHost ? `http://${expoHost}:5001` : "http://localhost:5001");
