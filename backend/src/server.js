@@ -1,11 +1,15 @@
 import dotenv from 'dotenv';
 import http from 'http';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { Server as IOServer } from 'socket.io';
 import app from './app.js';
 import connectDB from './config/db.js';
 import { runNotificationSweep } from './services/notificationService.js';
 
-dotenv.config();
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
 const PORT = Number(process.env.PORT) || 5000;
 const MAX_PORT_RETRIES = 10;

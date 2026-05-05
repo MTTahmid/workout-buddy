@@ -3362,7 +3362,8 @@ export async function AI_Nutrition(req, res)
   catch (error)
   {
     console.error('AI Nutrition Guide error', error);
-    return res.status(500).json({ message: 'Failed to fetch Nutrition Guide' });
+    const status = Number.isInteger(error?.statusCode) ? error.statusCode : 500;
+    return res.status(status).json({ message: error?.message || 'Failed to fetch Nutrition Guide' });
   }
 }
 
@@ -3384,7 +3385,11 @@ function validateInput(userInput) {
 
 async function fetchNutritionGuide(userInput) {
   const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error("GEMINI_API_KEY is missing");
+  if (!apiKey) {
+    const error = new Error('GEMINI_API_KEY is missing on backend');
+    error.statusCode = 503;
+    throw error;
+  }
 
   const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
 
@@ -3409,10 +3414,7 @@ async function fetchNutritionGuide(userInput) {
          "hydration_liters": number, 
          "notes": string }`
       }]
-    }],
-    generationConfig: {
-      response_mime_type: "application/json"
-    }
+    }]
   };
 
   try {
@@ -3433,7 +3435,13 @@ async function fetchNutritionGuide(userInput) {
 
     if (!rawText) throw new Error("Empty response from AI");
 
-    return JSON.parse(rawText.trim());
+    const jsonText = rawText
+      .trim()
+      .replace(/^```json\s*/i, '')
+      .replace(/^```\s*/i, '')
+      .replace(/```\s*$/i, '');
+
+    return JSON.parse(jsonText);
 
   } catch (error) {
     console.error("AI Fetch Error:", error.message);
@@ -3454,6 +3462,10 @@ export async function AI_imageScan(req, res) {
       return res.status(400).json({ message: 'No image file provided' });
     }
 
+    if (!apiKey) {
+      return res.status(503).json({ message: 'SPOONACULAR_API_KEY is missing on backend' });
+    }
+
     const formData = new FormData();
     const blob = new Blob([req.file.buffer], { type: req.file.mimetype });
     formData.append('file', blob, req.file.originalname);
@@ -3468,7 +3480,10 @@ export async function AI_imageScan(req, res) {
     if (!spoonacularResponse.ok)
     {
       const errText = await spoonacularResponse.text();
-      throw new Error(`API Error: ${spoonacularResponse.status} ${spoonacularResponse.statusText} — ${errText}`);
+      return res.status(spoonacularResponse.status).json({
+        message: `Image scan API error: ${spoonacularResponse.status} ${spoonacularResponse.statusText}`,
+        details: errText,
+      });
     }
 
     const result = await spoonacularResponse.json();
@@ -3478,7 +3493,7 @@ export async function AI_imageScan(req, res) {
   catch (error)
   {
     console.error('AI Image Scan error:', error);
-    return res.status(500).json({ message: 'Failed to analyze image' });
+    return res.status(500).json({ message: error?.message || 'Failed to analyze image' });
   }
 }
 
