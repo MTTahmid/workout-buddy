@@ -12,6 +12,7 @@ import {
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { USER_ID } from "@/constants/user";
 import { API_BASE_URL } from "@/constants/api";
+import SideDrawer from "./SideDrawer";
 
 type CalendarItem = {
   group: string;
@@ -46,6 +47,7 @@ export default function Calendar() {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDay, setSelectedDay] = useState<CalendarDay | null>(null);
   const [showDayDetail, setShowDayDetail] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   useEffect(() => {
     fetchCalendar();
@@ -256,6 +258,14 @@ export default function Calendar() {
 
   return (
     <View style={styles.container}>
+      {/* Menu Button */}
+      <TouchableOpacity
+        style={styles.menuButton}
+        onPress={() => setDrawerOpen(true)}
+      >
+        <Text style={{ color: "#fff", fontSize: 22 }}>≡</Text>
+      </TouchableOpacity>
+
       <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
         {/* Header */}
         <View style={styles.header}>
@@ -410,6 +420,9 @@ export default function Calendar() {
           </View>
         </View>
       </Modal>
+
+      {/* DRAWER COMPONENT */}
+      <SideDrawer visible={drawerOpen} onClose={() => setDrawerOpen(false)} />
     </View>
   );
 }
@@ -419,10 +432,22 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#000",
   },
+  menuButton: {
+    position: "absolute",
+    top: 60,
+    left: 20,
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: "rgba(255,255,255,0.1)",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 10,
+  },
   header: {
     paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 8,
+    paddingTop: 90,
+    paddingBottom: 16,
   },
   headerTitle: {
     color: "#fff",
