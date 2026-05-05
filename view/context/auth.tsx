@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import { Platform } from "react-native";
+import * as SecureStore from "expo-secure-store";
 import { API_BASE_URL } from "@/constants/api";
 
 export type AuthUser = {
@@ -29,12 +30,38 @@ const AuthContext = createContext<AuthContextType>({
 
 const STORAGE_KEY = "auth_user";
 
+async function readStoredUser() {
+  if (Platform.OS === "web") {
+    return localStorage.getItem(STORAGE_KEY);
+  }
+
+  return SecureStore.getItemAsync(STORAGE_KEY);
+}
+
+async function writeStoredUser(value: string) {
+  if (Platform.OS === "web") {
+    localStorage.setItem(STORAGE_KEY, value);
+    return;
+  }
+
+  await SecureStore.setItemAsync(STORAGE_KEY, value);
+}
+
+async function clearStoredUser() {
+  if (Platform.OS === "web") {
+    localStorage.removeItem(STORAGE_KEY);
+    return;
+  }
+
+  await SecureStore.deleteItemAsync(STORAGE_KEY);
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    AsyncStorage.getItem(STORAGE_KEY).then((stored) => {
+    readStoredUser().then((stored) => {
       if (stored) {
         try {
           setUser(JSON.parse(stored));
@@ -53,7 +80,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
       const data = await res.json();
       if (!res.ok) return { error: data.message || "Login failed" };
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(data.user));
+      await writeStoredUser(JSON.stringify(data.user));
       setUser(data.user);
       return {};
     } catch {
@@ -72,7 +99,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
       const data = await res.json();
       if (!res.ok) return { error: data.message || "Signup failed" };
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(data.user));
+      await writeStoredUser(JSON.stringify(data.user));
       setUser(data.user);
       return {};
     } catch {
@@ -81,7 +108,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const logout = async () => {
-    await AsyncStorage.removeItem(STORAGE_KEY);
+    await clearStoredUser();
     setUser(null);
   };
 

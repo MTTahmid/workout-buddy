@@ -307,7 +307,9 @@ export default function CalorieTracker() {
 
   const totalCalories = history.reduce((sum, e) => sum + (e.intakeCalories || 0), 0);
   const totalBurned = burnHistory.reduce((sum, e) => sum + (e.calories || 0), 0);
-  const netCalories = totalCalories - totalBurned;
+  const roundedTotalCalories = totalCalories.toFixed(2);
+  const roundedTotalBurned = totalBurned.toFixed(2);
+  const roundedNetCalories = (totalCalories - totalBurned).toFixed(2);
   const avgCalories =
     history.length > 0 ? Math.round(totalCalories / history.length) : 0;
 
@@ -345,18 +347,18 @@ export default function CalorieTracker() {
           <Text style={styles.summaryLabel}>Intake Entries</Text>
         </View>
         <View style={styles.summaryCard}>
-          <Text style={styles.summaryValue}>{totalCalories}</Text>
+          <Text style={styles.summaryValue}>{roundedTotalCalories}</Text>
           <Text style={styles.summaryLabel}>Intake Cal</Text>
         </View>
         <View style={styles.summaryCard}>
-          <Text style={styles.summaryValue}>{totalBurned}</Text>
+          <Text style={styles.summaryValue}>{roundedTotalBurned}</Text>
           <Text style={styles.summaryLabel}>Burned Cal</Text>
         </View>
       </View>
 
       <View style={styles.summaryRow}>
         <View style={styles.summaryCardWide}>
-          <Text style={styles.summaryValue}>{netCalories}</Text>
+          <Text style={styles.summaryValue}>{roundedNetCalories}</Text>
           <Text style={styles.summaryLabel}>Net (Intake - Burned)</Text>
         </View>
         <View style={styles.summaryCardWide}>
