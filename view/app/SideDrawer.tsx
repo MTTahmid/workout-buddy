@@ -133,6 +133,15 @@ export default function SideDrawer({ visible, onClose }: Props) {
             <TouchableOpacity
               onPress={() => {
                 onClose();
+                router.push(`/calendar?id=${userId}`);
+              }}
+            >
+              <Text style={styles.drawerItem}>Calendar</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={() => {
+                onClose();
                 router.push(`/history?id=${userId}`);
               }}
             >
