@@ -6,42 +6,35 @@ const StepTrackerSchema = new mongoose.Schema(
     startingDate: { type: Date },
     allTimeSteps:        { type: Number, default: 0 },
 
-    // --- Goals ---
     dailyStepGoal:   { type: Number, default: 10000 },
     weeklyStepGoal:  { type: Number, default: 70000 },
 
-    // --- Streaks ---
-    currentStreak:  { type: Number, default: 0 },  // consecutive days goal met
+    currentStreak:  { type: Number, default: 0 },
     longestStreak:  { type: Number, default: 0 },
-    lastActiveDate: { type: Date },                 // to calculate streak continuity
+    lastActiveDate: { type: Date },
 
-    // --- Averages ---
     avgDailySteps:   { type: Number, default: 0 },
     avgWeeklySteps:  { type: Number, default: 0 },
 
-    // --- Personal Bests ---
     bestDailySteps:  { type: Number, default: 0 },
     bestWeeklySteps: { type: Number, default: 0 },
     bestDailyDate:   { type: Date },
 
-    // --- User Physical Info (for accurate calorie/distance calc) ---
-    strideLength: { type: Number, default: 0.78 },  // in meters, avg adult
+    strideLength: { type: Number, default: 0.78 },
     weightKg:     { type: Number },
 
-    // --- History ---
     dailyHistory: 
     [
         {
             date:         { type: Date, required: true },
             steps:        { type: Number, default: 0 },
-            distance:     { type: Number, default: 0 },   // in meters
+            distance:     { type: Number, default: 0 },
             caloriesBurned: { type: Number, default: 0 },
             activeMinutes:  { type: Number, default: 0 },
             goalMet:      { type: Boolean, default: false },
         }
-    ],  // per-day breakdown
+    ],
 
-    // --- Goal Status ---
     weeklyGoalMet: { type: Boolean, default: false },
   },
   {
