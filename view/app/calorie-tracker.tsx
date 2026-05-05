@@ -9,7 +9,9 @@ import {
   Alert,
   ActivityIndicator,
   Modal,
+  Image,
 } from "react-native";
+import * as ImagePicker from "expo-image-picker";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { USER_ID } from "@/constants/user";
 import { API_BASE_URL } from "@/constants/api";
@@ -62,6 +64,37 @@ export default function CalorieTracker() {
   const [selectedFood, setSelectedFood] = useState<FoodSuggestion | null>(null);
   const [grams, setGrams] = useState("");
   const [quantity, setQuantity] = useState("1");
+
+  // AI Nutrition Guide
+  const [showNutritionModal, setShowNutritionModal] = useState(false);
+  const [nutritionAge, setNutritionAge] = useState("");
+  const [nutritionWeight, setNutritionWeight] = useState("");
+  const [nutritionHeight, setNutritionHeight] = useState("");
+  const [nutritionGoal, setNutritionGoal] = useState("");
+  const [nutritionActivity, setNutritionActivity] = useState("");
+  const [nutritionResult, setNutritionResult] = useState<null | {
+    daily_calories: number;
+    macros: { protein_g: number; carbs_g: number; fat_g: number };
+    meal_count: number;
+    recommended_meal_types: string[];
+    hydration_liters: number;
+    notes: string;
+  }>(null);
+  const [loadingNutrition, setLoadingNutrition] = useState(false);
+
+  // AI Image Scan
+  const [showScanModal, setShowScanModal] = useState(false);
+  const [scanImageUri, setScanImageUri] = useState<string | null>(null);
+  const [scanResult, setScanResult] = useState<null | {
+    category?: { name: string; probability: number };
+    nutrition?: {
+      calories?: { value: number; unit: string };
+      fat?: { value: number; unit: string };
+      protein?: { value: number; unit: string };
+      carbs?: { value: number; unit: string };
+    };
+  }>(null);
+  const [loadingScan, setLoadingScan] = useState(false);
 
   useEffect(() => {
     fetchHistory();
@@ -194,6 +227,84 @@ export default function CalorieTracker() {
     setQuantity("1");
   };
 
+  const handleNutritionGuide = async () => {
+    const age = parseFloat(nutritionAge);
+    const weight_kg = parseFloat(nutritionWeight);
+    const height_cm = parseFloat(nutritionHeight);
+
+    if (!nutritionGoal || !nutritionActivity) {
+      Alert.alert("Error", "Please select a goal and activity level.");
+      return;
+    }
+    if (!age || !weight_kg || !height_cm) {
+      Alert.alert("Error", "Please fill in all fields.");
+      return;
+    }
+
+    setLoadingNutrition(true);
+    setNutritionResult(null);
+    try {
+      const res = await fetch(`${API_BASE_URL}/user/${userId}/AI-Nutrition/guide`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ age, weight_kg, height_cm, goal: nutritionGoal, activity_level: nutritionActivity }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setNutritionResult(data);
+      } else {
+        Alert.alert("Error", data.message || "Failed to generate guide.");
+      }
+    } catch {
+      Alert.alert("Error", "Something went wrong.");
+    } finally {
+      setLoadingNutrition(false);
+    }
+  };
+
+  const handlePickAndScanImage = async () => {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert("Permission required", "Allow photo library access to scan food images.");
+      return;
+    }
+    const picked = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      quality: 0.8,
+    });
+    if (picked.canceled || !picked.assets?.[0]) return;
+
+    const asset = picked.assets[0];
+    setScanImageUri(asset.uri);
+    setScanResult(null);
+    setShowScanModal(true);
+    setLoadingScan(true);
+
+    try {
+      const formData = new FormData();
+      formData.append("image", {
+        uri: asset.uri,
+        type: asset.mimeType ?? "image/jpeg",
+        name: asset.fileName ?? "photo.jpg",
+      } as any);
+
+      const res = await fetch(`${API_BASE_URL}/user/${userId}/AI-Image-Scan/image`, {
+        method: "POST",
+        body: formData,
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setScanResult(data);
+      } else {
+        Alert.alert("Error", data.message || "Failed to analyse image.");
+      }
+    } catch {
+      Alert.alert("Error", "Something went wrong.");
+    } finally {
+      setLoadingScan(false);
+    }
+  };
+
   const totalCalories = history.reduce((sum, e) => sum + (e.intakeCalories || 0), 0);
   const totalBurned = burnHistory.reduce((sum, e) => sum + (e.calories || 0), 0);
   const netCalories = totalCalories - totalBurned;
@@ -254,6 +365,15 @@ export default function CalorieTracker() {
         </View>
       </View>
 
+      <View style={styles.aiRow}>
+        <TouchableOpacity style={styles.aiBtn} onPress={() => { setNutritionResult(null); setShowNutritionModal(true); }}>
+          <Text style={styles.aiBtnText}>AI Nutrition Guide</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.aiBtn} onPress={handlePickAndScanImage}>
+          <Text style={styles.aiBtnText}>Scan Food Image</Text>
+        </TouchableOpacity>
+      </View>
+
       <Text style={styles.sectionTitle}>Intake History</Text>
 
       <ScrollView style={styles.list} showsVerticalScrollIndicator={false}>
@@ -300,6 +420,152 @@ export default function CalorieTracker() {
       <TouchableOpacity style={styles.fab} onPress={() => setShowLog(true)}>
         <Text style={styles.fabText}>+ Log Intake</Text>
       </TouchableOpacity>
+
+      {/* AI Nutrition Guide Modal */}
+      <Modal visible={showNutritionModal} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
+            <View style={styles.modalBox}>
+              <Text style={styles.modalTitle}>AI Nutrition Guide</Text>
+
+              <Text style={styles.label}>Age</Text>
+              <TextInput style={styles.input} placeholder="e.g. 25" placeholderTextColor="#666"
+                keyboardType="numeric" value={nutritionAge} onChangeText={setNutritionAge} />
+
+              <Text style={styles.label}>Weight (kg)</Text>
+              <TextInput style={styles.input} placeholder="e.g. 70" placeholderTextColor="#666"
+                keyboardType="numeric" value={nutritionWeight} onChangeText={setNutritionWeight} />
+
+              <Text style={styles.label}>Height (cm)</Text>
+              <TextInput style={styles.input} placeholder="e.g. 175" placeholderTextColor="#666"
+                keyboardType="numeric" value={nutritionHeight} onChangeText={setNutritionHeight} />
+
+              <Text style={styles.label}>Goal</Text>
+              <View style={styles.chipRow}>
+                {(["weight_loss", "muscle_gain", "maintenance", "endurance"] as const).map((g) => (
+                  <TouchableOpacity key={g} style={[styles.chip, nutritionGoal === g && styles.chipActive]}
+                    onPress={() => setNutritionGoal(g)}>
+                    <Text style={[styles.chipText, nutritionGoal === g && styles.chipTextActive]}>
+                      {g.replace("_", " ")}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <Text style={styles.label}>Activity Level</Text>
+              <View style={styles.chipRow}>
+                {(["sedentary", "light", "moderate", "active", "very_active"] as const).map((a) => (
+                  <TouchableOpacity key={a} style={[styles.chip, nutritionActivity === a && styles.chipActive]}
+                    onPress={() => setNutritionActivity(a)}>
+                    <Text style={[styles.chipText, nutritionActivity === a && styles.chipTextActive]}>
+                      {a.replace("_", " ")}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              {nutritionResult && (
+                <View style={styles.guideCard}>
+                  <Text style={styles.guideCalories}>{nutritionResult.daily_calories}</Text>
+                  <Text style={styles.guideCalLabel}>kcal / day</Text>
+                  <View style={styles.guideMacroRow}>
+                    <View style={styles.guideMacro}>
+                      <Text style={styles.guideMacroVal}>{nutritionResult.macros.protein_g}g</Text>
+                      <Text style={styles.guideMacroLabel}>Protein</Text>
+                    </View>
+                    <View style={styles.guideMacro}>
+                      <Text style={styles.guideMacroVal}>{nutritionResult.macros.carbs_g}g</Text>
+                      <Text style={styles.guideMacroLabel}>Carbs</Text>
+                    </View>
+                    <View style={styles.guideMacro}>
+                      <Text style={styles.guideMacroVal}>{nutritionResult.macros.fat_g}g</Text>
+                      <Text style={styles.guideMacroLabel}>Fat</Text>
+                    </View>
+                  </View>
+                  <Text style={styles.guideMeta}>{nutritionResult.meal_count} meals/day · {nutritionResult.hydration_liters}L water</Text>
+                  {nutritionResult.recommended_meal_types?.length > 0 && (
+                    <Text style={styles.guideMeta}>
+                      {nutritionResult.recommended_meal_types.join(", ")}
+                    </Text>
+                  )}
+                  {nutritionResult.notes ? <Text style={styles.guideNotes}>{nutritionResult.notes}</Text> : null}
+                </View>
+              )}
+
+              <View style={[styles.modalActions, { marginTop: 16 }]}>
+                <TouchableOpacity style={styles.cancelBtn} onPress={() => { setShowNutritionModal(false); setNutritionResult(null); }}>
+                  <Text style={styles.cancelBtnText}>Close</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.saveBtn, loadingNutrition && { opacity: 0.6 }]}
+                  onPress={handleNutritionGuide} disabled={loadingNutrition}>
+                  <Text style={styles.saveBtnText}>{loadingNutrition ? "Generating..." : "Generate"}</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </ScrollView>
+        </View>
+      </Modal>
+
+      {/* AI Image Scan Modal */}
+      <Modal visible={showScanModal} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalBox}>
+            <Text style={styles.modalTitle}>Food Image Scan</Text>
+
+            {scanImageUri && (
+              <Image source={{ uri: scanImageUri }} style={styles.scanImage} />
+            )}
+
+            {loadingScan ? (
+              <ActivityIndicator color="#39d2b4" style={{ marginVertical: 24 }} />
+            ) : scanResult ? (
+              <View style={styles.scanResultCard}>
+                {scanResult.category && (
+                  <>
+                    <Text style={styles.scanFoodName}>{scanResult.category.name}</Text>
+                    <Text style={styles.scanConfidence}>
+                      {Math.round(scanResult.category.probability * 100)}% confidence
+                    </Text>
+                  </>
+                )}
+                {scanResult.nutrition && (
+                  <View style={styles.scanNutrRow}>
+                    {scanResult.nutrition.calories && (
+                      <View style={styles.scanNutrItem}>
+                        <Text style={styles.scanNutrVal}>{Math.round(scanResult.nutrition.calories.value)}</Text>
+                        <Text style={styles.scanNutrLabel}>kcal</Text>
+                      </View>
+                    )}
+                    {scanResult.nutrition.protein && (
+                      <View style={styles.scanNutrItem}>
+                        <Text style={styles.scanNutrVal}>{Math.round(scanResult.nutrition.protein.value)}g</Text>
+                        <Text style={styles.scanNutrLabel}>Protein</Text>
+                      </View>
+                    )}
+                    {scanResult.nutrition.carbs && (
+                      <View style={styles.scanNutrItem}>
+                        <Text style={styles.scanNutrVal}>{Math.round(scanResult.nutrition.carbs.value)}g</Text>
+                        <Text style={styles.scanNutrLabel}>Carbs</Text>
+                      </View>
+                    )}
+                    {scanResult.nutrition.fat && (
+                      <View style={styles.scanNutrItem}>
+                        <Text style={styles.scanNutrVal}>{Math.round(scanResult.nutrition.fat.value)}g</Text>
+                        <Text style={styles.scanNutrLabel}>Fat</Text>
+                      </View>
+                    )}
+                  </View>
+                )}
+              </View>
+            ) : null}
+
+            <TouchableOpacity style={[styles.cancelBtn, { marginTop: 20 }]}
+              onPress={() => { setShowScanModal(false); setScanImageUri(null); setScanResult(null); }}>
+              <Text style={styles.cancelBtnText}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       <Modal visible={showLog} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
@@ -648,5 +914,147 @@ const styles = StyleSheet.create({
     color: "#000",
     fontSize: 16,
     fontWeight: "700",
+  },
+
+  aiRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: 20,
+  },
+  aiBtn: {
+    flex: 1,
+    backgroundColor: "#1a1a1a",
+    borderColor: "#39d2b4",
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: "center",
+  },
+  aiBtnText: {
+    color: "#39d2b4",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+
+  chipRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginBottom: 14,
+  },
+  chip: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 20,
+    backgroundColor: "#2a2a2a",
+    borderWidth: 1,
+    borderColor: "#3a3a3a",
+  },
+  chipActive: {
+    backgroundColor: "#0e3530",
+    borderColor: "#39d2b4",
+  },
+  chipText: {
+    color: "#aaa",
+    fontSize: 13,
+  },
+  chipTextActive: {
+    color: "#39d2b4",
+    fontWeight: "700",
+  },
+
+  guideCard: {
+    backgroundColor: "#0d1f1c",
+    borderColor: "#1e3f38",
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 16,
+    marginTop: 4,
+  },
+  guideCalories: {
+    color: "#39d2b4",
+    fontSize: 28,
+    fontWeight: "700",
+    textAlign: "center",
+    marginBottom: 4,
+  },
+  guideCalLabel: {
+    color: "#8ecdc0",
+    fontSize: 13,
+    textAlign: "center",
+    marginBottom: 16,
+  },
+  guideMacroRow: {
+    flexDirection: "row",
+    justifyContent: "space-around",
+    marginBottom: 16,
+  },
+  guideMacro: {
+    alignItems: "center",
+  },
+  guideMacroVal: {
+    color: "#fff",
+    fontSize: 18,
+    fontWeight: "700",
+  },
+  guideMacroLabel: {
+    color: "#888",
+    fontSize: 12,
+    marginTop: 2,
+  },
+  guideMeta: {
+    color: "#aaa",
+    fontSize: 13,
+    marginBottom: 6,
+  },
+  guideNotes: {
+    color: "#888",
+    fontSize: 12,
+    fontStyle: "italic",
+    marginTop: 6,
+  },
+
+  scanImage: {
+    width: "100%",
+    height: 200,
+    borderRadius: 12,
+    marginBottom: 16,
+    resizeMode: "cover",
+  },
+  scanResultCard: {
+    backgroundColor: "#0d1f1c",
+    borderColor: "#1e3f38",
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 16,
+  },
+  scanFoodName: {
+    color: "#fff",
+    fontSize: 20,
+    fontWeight: "700",
+    marginBottom: 4,
+    textTransform: "capitalize",
+  },
+  scanConfidence: {
+    color: "#888",
+    fontSize: 12,
+    marginBottom: 14,
+  },
+  scanNutrRow: {
+    flexDirection: "row",
+    justifyContent: "space-around",
+  },
+  scanNutrItem: {
+    alignItems: "center",
+  },
+  scanNutrVal: {
+    color: "#39d2b4",
+    fontSize: 18,
+    fontWeight: "700",
+  },
+  scanNutrLabel: {
+    color: "#888",
+    fontSize: 12,
+    marginTop: 2,
   },
 });
